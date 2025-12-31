@@ -1,0 +1,17 @@
+{
+  "cxxNamespace": ["tejaslist"],
+  "ios": {
+    "iosModuleName": "TejasList"
+  },
+  "android": {
+    "androidNamespace": ["tejaslist"],
+    "androidCxxLibName": "tejaslist"
+  },
+  "autolinking": {
+    "TejasList": {
+      "swift": "HybridTejasList",
+      "kotlin": "HybridTejasList"
+    }
+  },
+  "ignorePaths": ["node_modules"]
+}
