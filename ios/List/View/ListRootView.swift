@@ -1,6 +1,6 @@
 import UIKit
 
-final class TejasListRootView: UIView, UIScrollViewDelegate {
+final class ListRootView: UIView, UIScrollViewDelegate {
 
   let scrollView = UIScrollView()
   private let contentView = UIView()
@@ -9,30 +9,32 @@ final class TejasListRootView: UIView, UIScrollViewDelegate {
   var onLayoutReady: (() -> Void)?
   var onCellHeightChange: ((Int, CGFloat) -> Void)?
 
-  private var visibleCells: [Int: TejasListCellView] = [:]
-  private var reusePool: [TejasListCellView] = []
-  private var didLayout = false
+  private var visibleCells: [Int: ListCellView] = [:]
+  private var reusePool: [ListCellView] = []
+
+  private var didLayoutOnce = false
 
   override init(frame: CGRect) {
     super.init(frame: frame)
 
     scrollView.delegate = self
     scrollView.alwaysBounceVertical = true
-    scrollView.showsVerticalScrollIndicator = true
     scrollView.contentInsetAdjustmentBehavior = .never
 
     addSubview(scrollView)
     scrollView.addSubview(contentView)
   }
 
-  required init?(coder: NSCoder) { fatalError() }
+  required init?(coder: NSCoder) {
+    fatalError("init(coder:) not supported")
+  }
 
   override func layoutSubviews() {
     super.layoutSubviews()
     scrollView.frame = bounds
 
-    if !didLayout && bounds.height > 0 {
-      didLayout = true
+    if !didLayoutOnce && bounds.height > 0 {
+      didLayoutOnce = true
       onLayoutReady?()
     }
   }
@@ -50,31 +52,30 @@ final class TejasListRootView: UIView, UIScrollViewDelegate {
   func mountCells(
     start: Int,
     end: Int,
-    offsets: [CGFloat],
-    heights: [CGFloat]
+    layout: ListLayoutEngine
   ) {
-    // Recycle
-    for (index, cell) in visibleCells where index < start || index > end {
-      cell.prepareForReuse()
-      cell.removeFromSuperview()
-      reusePool.append(cell)
-      visibleCells.removeValue(forKey: index)
+    for (index, cell) in visibleCells {
+      if index < start || index > end {
+        cell.prepareForReuse()
+        cell.removeFromSuperview()
+        reusePool.append(cell)
+        visibleCells.removeValue(forKey: index)
+      }
     }
 
-    // Mount
     for index in start...end where visibleCells[index] == nil {
-      let cell = reusePool.popLast() ?? TejasListCellView()
+      let cell = reusePool.popLast() ?? ListCellView()
       cell.bind(index: index)
 
-      cell.onHeightMeasured = { [weak self] h in
-        self?.onCellHeightChange?(index, h)
+      cell.onHeightMeasured = { [weak self] height in
+        self?.onCellHeightChange?(index, height)
       }
 
       cell.frame = CGRect(
         x: 0,
-        y: offsets[index],
+        y: layout.offset(at: index),
         width: bounds.width,
-        height: heights[index]
+        height: layout.height(at: index)
       )
 
       contentView.addSubview(cell)

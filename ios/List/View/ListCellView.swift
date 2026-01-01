@@ -1,6 +1,6 @@
 import UIKit
 
-final class TejasListCellView: UIView {
+final class ListCellView: UIView {
 
   private let label = UILabel()
   private(set) var index: Int = -1
@@ -17,14 +17,16 @@ final class TejasListCellView: UIView {
     addSubview(label)
   }
 
-  required init?(coder: NSCoder) { fatalError() }
+  required init?(coder: NSCoder) {
+    fatalError("init(coder:) not supported")
+  }
 
   override func layoutSubviews() {
     super.layoutSubviews()
     label.frame = bounds
 
-    let measuredHeight = label.intrinsicContentSize.height + 16
-    onHeightMeasured?(measuredHeight)
+    let height = label.intrinsicContentSize.height + 16
+    onHeightMeasured?(height)
   }
 
   func bind(index: Int) {
