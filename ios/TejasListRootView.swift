@@ -7,6 +7,7 @@ final class TejasListRootView: UIView, UIScrollViewDelegate {
 
   var onScroll: ((CGFloat, CGFloat) -> Void)?
   var onLayoutReady: (() -> Void)?
+  var onCellHeightChange: ((Int, CGFloat) -> Void)?
 
   private var visibleCells: [Int: TejasListCellView] = [:]
   private var reusePool: [TejasListCellView] = []
@@ -24,13 +25,10 @@ final class TejasListRootView: UIView, UIScrollViewDelegate {
     scrollView.addSubview(contentView)
   }
 
-  required init?(coder: NSCoder) {
-    fatalError()
-  }
+  required init?(coder: NSCoder) { fatalError() }
 
   override func layoutSubviews() {
     super.layoutSubviews()
-
     scrollView.frame = bounds
 
     if !didLayout && bounds.height > 0 {
@@ -49,16 +47,12 @@ final class TejasListRootView: UIView, UIScrollViewDelegate {
     scrollView.contentSize = contentView.bounds.size
   }
 
-  // MARK: Variable-height mounting
-
   func mountCells(
     start: Int,
     end: Int,
     offsets: [CGFloat],
     heights: [CGFloat]
   ) {
-    guard start <= end else { return }
-
     // Recycle
     for (index, cell) in visibleCells where index < start || index > end {
       cell.prepareForReuse()
@@ -71,6 +65,10 @@ final class TejasListRootView: UIView, UIScrollViewDelegate {
     for index in start...end where visibleCells[index] == nil {
       let cell = reusePool.popLast() ?? TejasListCellView()
       cell.bind(index: index)
+
+      cell.onHeightMeasured = { [weak self] h in
+        self?.onCellHeightChange?(index, h)
+      }
 
       cell.frame = CGRect(
         x: 0,
