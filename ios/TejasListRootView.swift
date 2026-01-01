@@ -2,21 +2,16 @@ import UIKit
 
 final class TejasListRootView: UIView, UIScrollViewDelegate {
 
-  // MARK: Views
   let scrollView = UIScrollView()
   private let contentView = UIView()
 
-  // MARK: Callbacks
   var onScroll: ((CGFloat, CGFloat) -> Void)?
   var onLayoutReady: (() -> Void)?
 
-  // MARK: Virtualization
   private var visibleCells: [Int: TejasListCellView] = [:]
   private var reusePool: [TejasListCellView] = []
-
   private var didLayout = false
 
-  // MARK: Init
   override init(frame: CGRect) {
     super.init(frame: frame)
 
@@ -33,7 +28,6 @@ final class TejasListRootView: UIView, UIScrollViewDelegate {
     fatalError()
   }
 
-  // MARK: Layout
   override func layoutSubviews() {
     super.layoutSubviews()
 
@@ -55,8 +49,14 @@ final class TejasListRootView: UIView, UIScrollViewDelegate {
     scrollView.contentSize = contentView.bounds.size
   }
 
-  // MARK: Cell Mounting
-  func mountCells(start: Int, end: Int, itemHeight: CGFloat) {
+  // MARK: Variable-height mounting
+
+  func mountCells(
+    start: Int,
+    end: Int,
+    offsets: [CGFloat],
+    heights: [CGFloat]
+  ) {
     guard start <= end else { return }
 
     // Recycle
@@ -74,9 +74,9 @@ final class TejasListRootView: UIView, UIScrollViewDelegate {
 
       cell.frame = CGRect(
         x: 0,
-        y: CGFloat(index) * itemHeight,
+        y: offsets[index],
         width: bounds.width,
-        height: itemHeight
+        height: heights[index]
       )
 
       contentView.addSubview(cell)
@@ -84,7 +84,6 @@ final class TejasListRootView: UIView, UIScrollViewDelegate {
     }
   }
 
-  // MARK: Scroll
   func scrollViewDidScroll(_ scrollView: UIScrollView) {
     onScroll?(
       scrollView.contentOffset.y,

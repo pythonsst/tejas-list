@@ -8,11 +8,18 @@ final class HybridTejasList: HybridTejasListSpec {
   let rootView = TejasListRootView()
   var view: UIView { rootView }
 
-  var itemCount: Double = 0 { didSet { layoutIfNeeded() } }
-  var estimatedItemHeight: Double = 0 { didSet { layoutIfNeeded() } }
+  // MARK: Props
+  var itemCount: Double = 0 { didSet { rebuildHeightsIfNeeded() } }
+  var estimatedItemHeight: Double = 0 { didSet { rebuildHeightsIfNeeded() } }
 
   var onVisibleRangeChange: ((Double, Double) -> Void)?
 
+  // MARK: Variable height cache
+  private var itemHeights: [CGFloat] = []
+  private var itemOffsets: [CGFloat] = []
+  private var totalContentHeight: CGFloat = 0
+
+  // MARK: State
   private var lastStart = -1
   private var lastEnd = -1
   private var needsLayout = false
@@ -29,23 +36,43 @@ final class HybridTejasList: HybridTejasListSpec {
     }
   }
 
-  private func layoutIfNeeded(force: Bool = false) {
-    guard itemCount > 0, estimatedItemHeight > 0 else { return }
+  // MARK: Layout rebuild
 
-    if rootView.bounds.height == 0 {
+  private func rebuildHeightsIfNeeded() {
+    let count = Int(itemCount)
+    guard count > 0, estimatedItemHeight > 0 else { return }
+
+    itemHeights = Array(
+      repeating: CGFloat(estimatedItemHeight),
+      count: count
+    )
+
+    rebuildOffsets()
+    layoutIfNeeded(force: true)
+  }
+
+  private func rebuildOffsets() {
+    itemOffsets.removeAll(keepingCapacity: true)
+    itemOffsets.reserveCapacity(itemHeights.count)
+
+    var offset: CGFloat = 0
+    for h in itemHeights {
+      itemOffsets.append(offset)
+      offset += h
+    }
+
+    totalContentHeight = offset
+    rootView.setContentHeight(totalContentHeight)
+  }
+
+  private func layoutIfNeeded(force: Bool = false) {
+    guard rootView.bounds.height > 0 else {
       needsLayout = true
       return
     }
 
     if force || needsLayout {
       needsLayout = false
-
-      let totalHeight =
-        CGFloat(itemCount) * CGFloat(estimatedItemHeight)
-
-      rootView.setContentHeight(totalHeight)
-
-      // 🔥 FORCE INITIAL MOUNT
       handleScroll(
         offsetY: rootView.scrollView.contentOffset.y,
         viewportHeight: rootView.bounds.height
@@ -53,37 +80,78 @@ final class HybridTejasList: HybridTejasListSpec {
     }
   }
 
-  private func handleScroll(offsetY: CGFloat, viewportHeight: CGFloat) {
-    let itemHeight = CGFloat(estimatedItemHeight)
-    let maxIndex = Int(itemCount) - 1
+  // MARK: Binary search
 
-    let first =
-      max(Int(offsetY / itemHeight) - overscan, 0)
+  private func firstVisibleIndex(offsetY: CGFloat) -> Int {
+    var low = 0
+    var high = itemOffsets.count - 1
 
-    let last =
-      min(
-        Int((offsetY + viewportHeight) / itemHeight) + overscan,
-        maxIndex
-      )
+    while low <= high {
+      let mid = (low + high) >> 1
+      if itemOffsets[mid] <= offsetY {
+        low = mid + 1
+      } else {
+        high = mid - 1
+      }
+    }
 
-    guard first != lastStart || last != lastEnd else { return }
-
-    lastStart = first
-    lastEnd = last
-
-    rootView.mountCells(
-      start: first,
-      end: last,
-      itemHeight: itemHeight
-    )
-
-    onVisibleRangeChange?(Double(first), Double(last))
+    return max(0, low - 1)
   }
 
+  private func lastVisibleIndex(offsetY: CGFloat, viewportHeight: CGFloat) -> Int {
+    let target = offsetY + viewportHeight
+    var low = 0
+    var high = itemOffsets.count - 1
+
+    while low <= high {
+      let mid = (low + high) >> 1
+      if itemOffsets[mid] < target {
+        low = mid + 1
+      } else {
+        high = mid - 1
+      }
+    }
+
+    return min(itemOffsets.count - 1, low)
+  }
+
+  // MARK: Scroll handling (HOT PATH)
+
+  private func handleScroll(offsetY: CGFloat, viewportHeight: CGFloat) {
+    guard !itemOffsets.isEmpty else { return }
+
+    let first = firstVisibleIndex(offsetY: offsetY)
+    let last = lastVisibleIndex(
+      offsetY: offsetY,
+      viewportHeight: viewportHeight
+    )
+
+    let start = max(first - overscan, 0)
+    let end = min(last + overscan, itemOffsets.count - 1)
+
+    guard start != lastStart || end != lastEnd else { return }
+
+    lastStart = start
+    lastEnd = end
+
+    rootView.mountCells(
+      start: start,
+      end: end,
+      offsets: itemOffsets,
+      heights: itemHeights
+    )
+
+    onVisibleRangeChange?(Double(start), Double(end))
+  }
+
+  // MARK: Public API
+
   func scrollToIndex(index: Double, animated: Bool) throws {
-    let y = CGFloat(index) * CGFloat(estimatedItemHeight)
+    let i = Int(index)
+    guard i >= 0 && i < itemOffsets.count else { return }
+
     rootView.scrollView.setContentOffset(
-      CGPoint(x: 0, y: y),
+      CGPoint(x: 0, y: itemOffsets[i]),
       animated: animated
     )
   }
