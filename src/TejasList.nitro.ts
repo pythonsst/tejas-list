@@ -1,15 +1,17 @@
 import type {
   HybridView,
-  HybridViewMethods,
   HybridViewProps,
+  HybridViewMethods,
 } from 'react-native-nitro-modules';
 
 export interface TejasListProps extends HybridViewProps {
-  color: string;
+  itemCount: number;
+  estimatedItemHeight: number;
+  onVisibleRangeChange?: (start: number, end: number) => void;
 }
-export interface TejasListMethods extends HybridViewMethods {}
 
-export type TejasList = HybridView<
-  TejasListProps,
-  TejasListMethods
->;
+export interface TejasListMethods extends HybridViewMethods {
+  scrollToIndex(index: number, animated: boolean): void;
+}
+
+export type TejasList = HybridView<TejasListProps, TejasListMethods>;

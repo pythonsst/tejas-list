@@ -1,23 +1,42 @@
-import { View, StyleSheet } from 'react-native';
-import { TejasListView } from 'react-native-tejas-list';
+import * as React from 'react';
+import { SafeAreaView, StyleSheet } from 'react-native';
 
-export default function App() {
-  return (
-    <View style={styles.container}>
-      <TejasListView color="#32a852" style={styles.box} />
-    </View>
+import { TejasList } from 'react-native-tejas-list';
+
+const ITEM_COUNT = 10_000;
+const ESTIMATED_ITEM_HEIGHT = 80;
+
+const App: React.FC = () => {
+  /**
+   * This callback is NOT on the hot path.
+   * Native calls it only when visible range changes.
+   */
+  const handleVisibleRangeChange = React.useCallback(
+    (start: number, end: number): void => {
+      console.log('visible range:', start, end);
+    },
+    []
   );
-}
+
+  return (
+    <SafeAreaView style={styles.container}>
+      <TejasList
+        itemCount={ITEM_COUNT}
+        estimatedItemHeight={ESTIMATED_ITEM_HEIGHT}
+        onVisibleRangeChange={handleVisibleRangeChange}
+        style={styles.list}
+      />
+    </SafeAreaView>
+  );
+};
+
+export default App;
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
-  box: {
-    width: 60,
-    height: 60,
-    marginVertical: 20,
+  list: {
+    flex: 1,
   },
 });
