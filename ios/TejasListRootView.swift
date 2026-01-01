@@ -2,124 +2,93 @@ import UIKit
 
 final class TejasListRootView: UIView, UIScrollViewDelegate {
 
+  // MARK: Views
   let scrollView = UIScrollView()
-  let contentView = UIView()
+  private let contentView = UIView()
 
-  // Callbacks to Hybrid layer
+  // MARK: Callbacks
   var onScroll: ((CGFloat, CGFloat) -> Void)?
-  var onLayout: (() -> Void)?
+  var onLayoutReady: (() -> Void)?
 
-  // Cell management
+  // MARK: Virtualization
   private var visibleCells: [Int: TejasListCellView] = [:]
   private var reusePool: [TejasListCellView] = []
 
+  private var didLayout = false
+
+  // MARK: Init
   override init(frame: CGRect) {
     super.init(frame: frame)
 
-    print("🟢 [ROOT:init] frame =", frame)
-
-    scrollView.alwaysBounceVertical = true
-    scrollView.showsVerticalScrollIndicator = true
     scrollView.delegate = self
-
-    // Debug colors (keep for now)
-    backgroundColor = .systemBlue.withAlphaComponent(0.05)
-    scrollView.backgroundColor = .systemYellow.withAlphaComponent(0.15)
-    contentView.backgroundColor = .systemRed.withAlphaComponent(0.10)
+    scrollView.alwaysBounceVertical = true
+    scrollView.showsVerticalScrollIndicator = false
+    scrollView.contentInsetAdjustmentBehavior = .never
 
     addSubview(scrollView)
     scrollView.addSubview(contentView)
   }
 
   required init?(coder: NSCoder) {
-    fatalError("init(coder:) not supported")
+    fatalError()
   }
 
+  // MARK: Layout
   override func layoutSubviews() {
     super.layoutSubviews()
 
-    print("🟢 [ROOT:layoutSubviews] bounds =", bounds)
-
     scrollView.frame = bounds
 
-    if bounds.width > 0 {
-      onLayout?()
+    if !didLayout && bounds.height > 0 {
+      didLayout = true
+      onLayoutReady?()
     }
   }
 
-  func updateContent(height: CGFloat) {
-    print("🔵 [LAYOUT:updateContent] height =", height)
-
+  func setContentHeight(_ height: CGFloat) {
     contentView.frame = CGRect(
       x: 0,
       y: 0,
       width: bounds.width,
       height: height
     )
-
     scrollView.contentSize = contentView.bounds.size
-
-    print(
-      "🔵 [LAYOUT:updateContent]",
-      "contentView.frame =", contentView.frame,
-      "contentSize =", scrollView.contentSize
-    )
   }
 
-  // MARK: - Cell Virtualization
+  // MARK: Cell Mounting
+  func mountCells(start: Int, end: Int, itemHeight: CGFloat) {
+    guard start <= end else { return }
 
-  func updateVisibleCells(
-    start: Int,
-    end: Int,
-    itemHeight: CGFloat
-  ) {
-    print("🟣 [ROOT:updateVisibleCells]", start, end)
-
-    // Recycle cells that left viewport
-    for (index, cell) in visibleCells {
-      if index < start || index > end {
-        cell.prepareForReuse()
-        cell.removeFromSuperview()
-        reusePool.append(cell)
-        visibleCells.removeValue(forKey: index)
-
-        print("🔴 [CELL:recycle]", index)
-      }
+    // Recycle
+    for (index, cell) in visibleCells where index < start || index > end {
+      cell.prepareForReuse()
+      cell.removeFromSuperview()
+      reusePool.append(cell)
+      visibleCells.removeValue(forKey: index)
     }
 
-    // Mount missing cells
-    for index in start...end {
-      if visibleCells[index] == nil {
-        let cell = reusePool.popLast() ?? TejasListCellView()
+    // Mount
+    for index in start...end where visibleCells[index] == nil {
+      let cell = reusePool.popLast() ?? TejasListCellView()
+      cell.bind(index: index)
 
-        cell.bind(index: index)
-        cell.frame = CGRect(
-          x: 0,
-          y: CGFloat(index) * itemHeight,
-          width: bounds.width,
-          height: itemHeight
-        )
+      cell.frame = CGRect(
+        x: 0,
+        y: CGFloat(index) * itemHeight,
+        width: bounds.width,
+        height: itemHeight
+      )
 
-        contentView.addSubview(cell)
-        visibleCells[index] = cell
-
-        print("🟢 [CELL:mount]", index)
-      }
+      contentView.addSubview(cell)
+      visibleCells[index] = cell
     }
   }
 
-  // MARK: - UIScrollViewDelegate
-
+  // MARK: Scroll
   func scrollViewDidScroll(_ scrollView: UIScrollView) {
-    let offsetY = scrollView.contentOffset.y
-    let viewportHeight = scrollView.bounds.height
-
-    print(
-      "🟠 [SCROLL]",
-      "offsetY =", offsetY,
-      "viewportHeight =", viewportHeight
+    onScroll?(
+      scrollView.contentOffset.y,
+      scrollView.bounds.height
     )
-
-    onScroll?(offsetY, viewportHeight)
   }
 }

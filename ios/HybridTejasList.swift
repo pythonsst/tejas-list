@@ -1,129 +1,90 @@
 import UIKit
+import NitroModules
 
 final class HybridTejasList: HybridTejasListSpec {
 
-  // MARK: - Required by Nitro
-  
-  // MARK: - Overscan
-  private let overscanCount = 5
+  private let overscan = 5
 
   let rootView = TejasListRootView()
   var view: UIView { rootView }
 
-  // MARK: - Props (from JS)
-
-  var itemCount: Double = 0 {
-    didSet {
-      print("🟣 [HYBRID:itemCount]", itemCount)
-      updateLayout()
-    }
-  }
-
-  var estimatedItemHeight: Double = 0 {
-    didSet {
-      print("🟣 [HYBRID:estimatedItemHeight]", estimatedItemHeight)
-      updateLayout()
-    }
-  }
+  var itemCount: Double = 0 { didSet { layoutIfNeeded() } }
+  var estimatedItemHeight: Double = 0 { didSet { layoutIfNeeded() } }
 
   var onVisibleRangeChange: ((Double, Double) -> Void)?
 
-  // MARK: - Internal State
-
-  private var needsLayoutUpdate = false
-  private var visibleStart = -1
-  private var visibleEnd = -1
+  private var lastStart = -1
+  private var lastEnd = -1
+  private var needsLayout = false
 
   override init() {
     super.init()
 
-    print("🟣 [HYBRID:init]")
-
-    rootView.onLayout = { [weak self] in
-      guard let self = self else { return }
-
-      print("🟣 [HYBRID:onLayout]")
-
-      if self.needsLayoutUpdate {
-        self.needsLayoutUpdate = false
-        self.updateLayout()
-      }
+    rootView.onLayoutReady = { [weak self] in
+      self?.layoutIfNeeded(force: true)
     }
 
-    rootView.onScroll = { [weak self] offsetY, viewportHeight in
-      self?.handleScroll(offsetY: offsetY, viewportHeight: viewportHeight)
+    rootView.onScroll = { [weak self] offset, height in
+      self?.handleScroll(offsetY: offset, viewportHeight: height)
     }
   }
 
-  // MARK: - Methods (from JS)
+  private func layoutIfNeeded(force: Bool = false) {
+    guard itemCount > 0, estimatedItemHeight > 0 else { return }
+
+    if rootView.bounds.height == 0 {
+      needsLayout = true
+      return
+    }
+
+    if force || needsLayout {
+      needsLayout = false
+
+      let totalHeight =
+        CGFloat(itemCount) * CGFloat(estimatedItemHeight)
+
+      rootView.setContentHeight(totalHeight)
+
+      // 🔥 FORCE INITIAL MOUNT
+      handleScroll(
+        offsetY: rootView.scrollView.contentOffset.y,
+        viewportHeight: rootView.bounds.height
+      )
+    }
+  }
+
+  private func handleScroll(offsetY: CGFloat, viewportHeight: CGFloat) {
+    let itemHeight = CGFloat(estimatedItemHeight)
+    let maxIndex = Int(itemCount) - 1
+
+    let first =
+      max(Int(offsetY / itemHeight) - overscan, 0)
+
+    let last =
+      min(
+        Int((offsetY + viewportHeight) / itemHeight) + overscan,
+        maxIndex
+      )
+
+    guard first != lastStart || last != lastEnd else { return }
+
+    lastStart = first
+    lastEnd = last
+
+    rootView.mountCells(
+      start: first,
+      end: last,
+      itemHeight: itemHeight
+    )
+
+    onVisibleRangeChange?(Double(first), Double(last))
+  }
 
   func scrollToIndex(index: Double, animated: Bool) throws {
-    guard estimatedItemHeight > 0 else { return }
-
-    let y = CGFloat(index * estimatedItemHeight)
-
-    print("🟣 [HYBRID:scrollToIndex]", index)
-
+    let y = CGFloat(index) * CGFloat(estimatedItemHeight)
     rootView.scrollView.setContentOffset(
       CGPoint(x: 0, y: y),
       animated: animated
     )
   }
-
-  // MARK: - Layout
-
-  private func updateLayout() {
-    print(
-      "🔵 [LAYOUT:updateLayout]",
-      "itemCount =", itemCount,
-      "estimatedItemHeight =", estimatedItemHeight,
-      "bounds =", rootView.bounds
-    )
-
-    guard itemCount > 0, estimatedItemHeight > 0 else {
-      print("🔴 [ABORT:updateLayout] missing data")
-      return
-    }
-
-    if rootView.bounds.width == 0 {
-      print("🟡 [LAYOUT] deferring until bounds exist")
-      needsLayoutUpdate = true
-      return
-    }
-
-    let height = CGFloat(itemCount * estimatedItemHeight)
-
-    rootView.updateContent(height: height)
-  }
-
-  // MARK: - Scroll math
-
-  private func handleScroll(offsetY: CGFloat, viewportHeight: CGFloat) {
-    guard estimatedItemHeight > 0 else { return }
-
-    let rawStart = Int(offsetY / CGFloat(estimatedItemHeight))
-    let rawEnd = Int((offsetY + viewportHeight) / CGFloat(estimatedItemHeight))
-
-    let start = max(rawStart - overscanCount, 0)
-    let end = min(
-      rawEnd + overscanCount,
-      Int(itemCount) - 1
-    )
-
-    if start != visibleStart || end != visibleEnd {
-      visibleStart = start
-      visibleEnd = end
-
-      print("🟣 [HYBRID:visibleRange+overscan]", start, end)
-
-      onVisibleRangeChange?(Double(start), Double(end))
-
-      rootView.updateVisibleCells(
-        start: start,
-        end: end,
-        itemHeight: CGFloat(estimatedItemHeight)
-      )
-    }
-  }
-
 }
