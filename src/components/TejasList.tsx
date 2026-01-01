@@ -1,8 +1,8 @@
 import * as React from 'react';
 import type { StyleProp, ViewStyle } from 'react-native';
 
-import { TejasListView } from './TejasListView';
-import type { TejasListProps, TejasListMethods } from './TejasList.nitro';
+import { TejasListHostView } from '../native/TejasListHostView';
+import type { TejasListProps, TejasListMethods } from '../spec/TejasList.nitro';
 
 /**
  * Public props (what users write)
@@ -18,17 +18,16 @@ export const TejasList = React.forwardRef<
 >(function TejasList(props, forwardedRef) {
   const { style, onVisibleRangeChange, ...nativeProps } = props;
 
-  // ✅ Wrap Nitro callback
+  // Wrap Nitro callback
   const visibleRangeCallback = React.useMemo(() => {
-    if (!onVisibleRangeChange) {
-      return undefined;
-    }
+    if (!onVisibleRangeChange) return undefined;
     return { f: onVisibleRangeChange };
   }, [onVisibleRangeChange]);
 
-  // ✅ Wrap Nitro hybridRef
+  // Wrap Nitro hybridRef
   const hybridRef = React.useMemo(() => {
     if (!forwardedRef) return undefined;
+
     return {
       f(instance: TejasListMethods | null) {
         if (typeof forwardedRef === 'function') {
@@ -41,7 +40,7 @@ export const TejasList = React.forwardRef<
   }, [forwardedRef]);
 
   return (
-    <TejasListView
+    <TejasListHostView
       {...nativeProps}
       style={style}
       hybridRef={hybridRef}
