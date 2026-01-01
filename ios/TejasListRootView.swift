@@ -22,7 +22,7 @@ final class TejasListRootView: UIView, UIScrollViewDelegate {
 
     scrollView.delegate = self
     scrollView.alwaysBounceVertical = true
-    scrollView.showsVerticalScrollIndicator = false
+    scrollView.showsVerticalScrollIndicator = true
     scrollView.contentInsetAdjustmentBehavior = .never
 
     addSubview(scrollView)
