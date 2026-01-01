@@ -59,13 +59,20 @@ final class ListEngine {
 
   // MARK: - Layout
 
-  func rebuildLayout() {
-    guard itemCount > 0, estimatedItemHeight > 0 else { return }
+func rebuildLayout() {
+  guard itemCount > 0, estimatedItemHeight > 0 else { return }
 
-    layoutEngine.build()
-    rootView.setContentHeight(layoutEngine.totalHeight)
-    scrollHandler.forceUpdate()
-  }
+  layoutEngine.build()
+  rootView.setContentHeight(layoutEngine.totalHeight)
+
+  // 🔥 CRITICAL FIX: force initial visible range calculation
+  scrollHandler.forceUpdate()
+
+  scrollHandler.handleScroll(
+    offsetY: rootView.scrollView.contentOffset.y,
+    viewportHeight: rootView.bounds.height
+  )
+}
 
   // MARK: - Scroll API
 
