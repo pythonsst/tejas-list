@@ -2,22 +2,21 @@ import UIKit
 import NitroModules
 
 /**
- * HybridTejasList
+ * Nitro wrapper for the native list.
  *
- * Nitro-facing wrapper.
- * - Exposes props to JS
- * - Delegates all logic to ListCoordinator
+ * Responsibilities:
+ * - Receive props from JS
+ * - Expose a UIView to Nitro
+ * - Forward calls to ListCoordinator
  *
- * 🚫 No layout math
- * 🚫 No UIKit logic
+ * Contains NO logic.
  */
 final class HybridTejasList: HybridTejasListSpec {
 
-  // MARK: - Core engine (single source of truth)
-
+  /// Owns all native behavior
   private let coordinator = ListCoordinator()
 
-  // MARK: - Nitro required props (MUST be public)
+  // JS props
 
   var itemCount: Double = 0 {
     didSet {
@@ -44,21 +43,18 @@ final class HybridTejasList: HybridTejasListSpec {
     }
   }
 
-  // MARK: - View (Nitro requirement)
+  // Nitro-required view
 
   var view: UIView {
     coordinator.rootView
   }
 
-  // MARK: - Nitro lifecycle hooks
+  // Nitro lifecycle
 
-  /// Called by Nitro when props are committed
   func reload() throws {
-    // Ensure layout + first mount
     coordinator.rebuildLayoutAndMount()
   }
 
-  /// JS → Native scroll API
   func scrollToIndex(
     index: Double,
     animated: Bool

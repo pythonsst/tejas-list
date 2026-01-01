@@ -3,50 +3,38 @@ import UIKit
 /**
  * ListCoordinator
  *
- * Orchestrates:
- * - Layout building (prefix sums)
- * - Scroll → visible range calculation
- * - Root view → mounting & recycling
- *
- * 🚫 No Nitro
- * 🚫 No UIKit math
- * 🚫 Deterministic first mount
+ * Central coordinator for the native list.
+ * Connects layout, scrolling, and view mounting.
  */
 final class ListCoordinator {
 
-  // MARK: - Public
-
+  /// Root view exposed to the Hybrid layer
   let rootView = ListRootView()
 
-  /// Native → JS callback
+  /// Emits currently visible item range
   var onVisibleRangeChange: ((Int, Int) -> Void)?
-
-  // MARK: - Core engines
 
   private let layoutEngine = ListLayoutEngine()
   private let scrollHandler = ListScrollHandler()
 
-  // MARK: - Init
-
   init() {
-
-    // Wire layout engine into scroll handler
+    // Scroll math needs layout data
     scrollHandler.layout = layoutEngine
 
-    // 1️⃣ Layout ready (bounds are valid)
+    // Build layout once bounds are known
     rootView.onLayoutReady = { [weak self] in
       self?.rebuildLayoutAndMount()
     }
 
-    // 2️⃣ Scroll → visible range
-    rootView.onScroll = { [weak self] offsetY, viewportHeight in
+    // Forward scroll events
+    rootView.onScroll = { [weak self] offsetY, height in
       self?.scrollHandler.handleScroll(
         offsetY: offsetY,
-        viewportHeight: viewportHeight
+        viewportHeight: height
       )
     }
 
-    // 3️⃣ Visible range → mount cells
+    // Mount cells when visible range changes
     scrollHandler.onVisibleRangeChange = { [weak self] start, end in
       guard let self else { return }
 
@@ -59,7 +47,7 @@ final class ListCoordinator {
       self.onVisibleRangeChange?(start, end)
     }
 
-    // 4️⃣ Cell height measurement → anchor-safe update
+    // Handle dynamic height changes without breaking scroll position
     rootView.onCellHeightChange = { [weak self] index, height in
       guard let self else { return }
 
@@ -70,7 +58,6 @@ final class ListCoordinator {
 
       guard delta != 0 else { return }
 
-      // Anchor scroll position
       if self.layoutEngine.offset(at: index)
         < self.rootView.scrollView.contentOffset.y {
 
@@ -81,49 +68,37 @@ final class ListCoordinator {
         self.layoutEngine.totalHeight
       )
 
-      // Force range recalculation
-      self.scrollHandler.reset()
+      scrollHandler.reset()
     }
   }
 
-  // MARK: - Layout (CRITICAL PATH)
-
-   func rebuildLayoutAndMount() {
+  /// Builds layout and guarantees first visible cells are mounted
+  func rebuildLayoutAndMount() {
     guard
       layoutEngine.itemCount > 0,
       layoutEngine.estimatedItemHeight > 0,
       rootView.bounds.height > 0
     else { return }
 
-    // 1️⃣ Build prefix sums
     layoutEngine.build()
-
-    // 2️⃣ Set scrollable content size
     rootView.setContentHeight(layoutEngine.totalHeight)
-
-    // 3️⃣ Reset scroll handler state
     scrollHandler.reset()
 
-    // 4️⃣ 🔥 FORCE INITIAL VISIBLE RANGE
     scrollHandler.handleScroll(
       offsetY: rootView.scrollView.contentOffset.y,
       viewportHeight: rootView.bounds.height
     )
   }
 
-  // MARK: - Scroll API
-
+  /// Scrolls to a specific item index
   func scrollToIndex(_ index: Int, animated: Bool) {
     guard index >= 0, index < layoutEngine.count else { return }
 
-    let y = layoutEngine.offset(at: index)
     rootView.scrollView.setContentOffset(
-      CGPoint(x: 0, y: y),
+      CGPoint(x: 0, y: layoutEngine.offset(at: index)),
       animated: animated
     )
   }
-
-  // MARK: - Props passthrough
 
   func setItemCount(_ count: Int) {
     layoutEngine.itemCount = count
