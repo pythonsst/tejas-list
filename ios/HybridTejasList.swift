@@ -3,6 +3,9 @@ import UIKit
 final class HybridTejasList: HybridTejasListSpec {
 
   // MARK: - Required by Nitro
+  
+  // MARK: - Overscan
+  private let overscanCount = 5
 
   let rootView = TejasListRootView()
   var view: UIView { rootView }
@@ -98,9 +101,12 @@ final class HybridTejasList: HybridTejasListSpec {
   private func handleScroll(offsetY: CGFloat, viewportHeight: CGFloat) {
     guard estimatedItemHeight > 0 else { return }
 
-    let start = max(Int(offsetY / CGFloat(estimatedItemHeight)), 0)
+    let rawStart = Int(offsetY / CGFloat(estimatedItemHeight))
+    let rawEnd = Int((offsetY + viewportHeight) / CGFloat(estimatedItemHeight))
+
+    let start = max(rawStart - overscanCount, 0)
     let end = min(
-      Int((offsetY + viewportHeight) / CGFloat(estimatedItemHeight)),
+      rawEnd + overscanCount,
       Int(itemCount) - 1
     )
 
@@ -108,7 +114,7 @@ final class HybridTejasList: HybridTejasListSpec {
       visibleStart = start
       visibleEnd = end
 
-      print("🟣 [HYBRID:visibleRange]", start, end)
+      print("🟣 [HYBRID:visibleRange+overscan]", start, end)
 
       onVisibleRangeChange?(Double(start), Double(end))
 
@@ -119,4 +125,5 @@ final class HybridTejasList: HybridTejasListSpec {
       )
     }
   }
+
 }
