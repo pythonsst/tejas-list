@@ -4,13 +4,13 @@ import UIKit
  * ListCoordinator
  *
  * Orchestrates:
- * - Scroll events → visible range calculation
- * - Layout engine → offsets & heights
- * - Root view → mounting & recycling cells
+ * - Layout building (prefix sums)
+ * - Scroll → visible range calculation
+ * - Root view → mounting & recycling
  *
  * 🚫 No Nitro
  * 🚫 No UIKit math
- * 🚫 No heavy logic
+ * 🚫 Deterministic first mount
  */
 final class ListCoordinator {
 
@@ -29,9 +29,13 @@ final class ListCoordinator {
   // MARK: - Init
 
   init() {
-    // 1️⃣ Layout ready
+
+    // Wire layout engine into scroll handler
+    scrollHandler.layout = layoutEngine
+
+    // 1️⃣ Layout ready (bounds are valid)
     rootView.onLayoutReady = { [weak self] in
-      self?.rebuildLayout()
+      self?.rebuildLayoutAndMount()
     }
 
     // 2️⃣ Scroll → visible range
@@ -66,7 +70,7 @@ final class ListCoordinator {
 
       guard delta != 0 else { return }
 
-      // Scroll anchoring
+      // Anchor scroll position
       if self.layoutEngine.offset(at: index)
         < self.rootView.scrollView.contentOffset.y {
 
@@ -76,20 +80,35 @@ final class ListCoordinator {
       self.rootView.setContentHeight(
         self.layoutEngine.totalHeight
       )
-    }
 
-    // Wire layout engine into scroll handler
-    scrollHandler.layoutEngine = layoutEngine
+      // Force range recalculation
+      self.scrollHandler.reset()
+    }
   }
 
-  // MARK: - Layout
+  // MARK: - Layout (CRITICAL PATH)
 
-  func rebuildLayout() {
-    guard layoutEngine.count > 0 else { return }
+   func rebuildLayoutAndMount() {
+    guard
+      layoutEngine.itemCount > 0,
+      layoutEngine.estimatedItemHeight > 0,
+      rootView.bounds.height > 0
+    else { return }
 
+    // 1️⃣ Build prefix sums
     layoutEngine.build()
+
+    // 2️⃣ Set scrollable content size
     rootView.setContentHeight(layoutEngine.totalHeight)
-    scrollHandler.forceUpdate()
+
+    // 3️⃣ Reset scroll handler state
+    scrollHandler.reset()
+
+    // 4️⃣ 🔥 FORCE INITIAL VISIBLE RANGE
+    scrollHandler.handleScroll(
+      offsetY: rootView.scrollView.contentOffset.y,
+      viewportHeight: rootView.bounds.height
+    )
   }
 
   // MARK: - Scroll API

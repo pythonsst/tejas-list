@@ -11,7 +11,6 @@ final class ListRootView: UIView, UIScrollViewDelegate {
 
   private var visibleCells: [Int: ListCellView] = [:]
   private var reusePool: [ListCellView] = []
-
   private var didLayoutOnce = false
 
   override init(frame: CGRect) {
@@ -26,7 +25,7 @@ final class ListRootView: UIView, UIScrollViewDelegate {
   }
 
   required init?(coder: NSCoder) {
-    fatalError("init(coder:) not supported")
+    fatalError()
   }
 
   override func layoutSubviews() {
@@ -41,8 +40,7 @@ final class ListRootView: UIView, UIScrollViewDelegate {
 
   func setContentHeight(_ height: CGFloat) {
     contentView.frame = CGRect(
-      x: 0,
-      y: 0,
+      x: 0, y: 0,
       width: bounds.width,
       height: height
     )
@@ -54,21 +52,19 @@ final class ListRootView: UIView, UIScrollViewDelegate {
     end: Int,
     layout: ListLayoutEngine
   ) {
-    for (index, cell) in visibleCells {
-      if index < start || index > end {
-        cell.prepareForReuse()
-        cell.removeFromSuperview()
-        reusePool.append(cell)
-        visibleCells.removeValue(forKey: index)
-      }
+    for (index, cell) in visibleCells where index < start || index > end {
+      cell.prepareForReuse()
+      cell.removeFromSuperview()
+      reusePool.append(cell)
+      visibleCells.removeValue(forKey: index)
     }
 
     for index in start...end where visibleCells[index] == nil {
       let cell = reusePool.popLast() ?? ListCellView()
       cell.bind(index: index)
 
-      cell.onHeightMeasured = { [weak self] height in
-        self?.onCellHeightChange?(index, height)
+      cell.onHeightMeasured = { [weak self] h in
+        self?.onCellHeightChange?(index, h)
       }
 
       cell.frame = CGRect(

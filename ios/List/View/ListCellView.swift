@@ -4,7 +4,6 @@ final class ListCellView: UIView {
 
   private let label = UILabel()
   private(set) var index: Int = -1
-
   var onHeightMeasured: ((CGFloat) -> Void)?
 
   override init(frame: CGRect) {
@@ -13,20 +12,17 @@ final class ListCellView: UIView {
     label.numberOfLines = 0
     label.textAlignment = .center
     label.font = .systemFont(ofSize: 16)
-
     addSubview(label)
   }
 
   required init?(coder: NSCoder) {
-    fatalError("init(coder:) not supported")
+    fatalError()
   }
 
   override func layoutSubviews() {
     super.layoutSubviews()
     label.frame = bounds
-
-    let height = label.intrinsicContentSize.height + 16
-    onHeightMeasured?(height)
+    onHeightMeasured?(label.intrinsicContentSize.height + 16)
   }
 
   func bind(index: Int) {

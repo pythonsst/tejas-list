@@ -2,14 +2,12 @@ import UIKit
 
 final class ListEngine {
 
-  // MARK: - Public API
-
   var itemCount: Int = 0 {
-    didSet { layoutEngine.itemCount = itemCount }
+    didSet { layout.itemCount = itemCount }
   }
 
   var estimatedItemHeight: CGFloat = 0 {
-    didSet { layoutEngine.estimatedItemHeight = estimatedItemHeight }
+    didSet { layout.estimatedItemHeight = estimatedItemHeight }
   }
 
   var onVisibleRangeChange: ((Int, Int) -> Void)?
@@ -17,21 +15,29 @@ final class ListEngine {
   let rootView = ListRootView()
   var view: UIView { rootView }
 
-  // MARK: - Internals
-
-  private let layoutEngine = ListLayoutEngine()
-  private let scrollHandler = ListScrollHandler()
-
-  // MARK: - Init
+  private let layout = ListLayoutEngine()
+  private let scroll = ListScrollHandler()
 
   init() {
 
+    scroll.layout = layout
+
     rootView.onLayoutReady = { [weak self] in
-      self?.rebuildLayout()
+      guard let self else { return }
+
+      self.layout.build()
+      self.rootView.setContentHeight(self.layout.totalHeight)
+      self.scroll.reset()
+
+      // ✅ GUARANTEED FIRST MOUNT
+      self.scroll.handleScroll(
+        offsetY: 0,
+        viewportHeight: self.rootView.bounds.height
+      )
     }
 
     rootView.onScroll = { [weak self] offsetY, height in
-      self?.scrollHandler.handleScroll(
+      self?.scroll.handleScroll(
         offsetY: offsetY,
         viewportHeight: height
       )
@@ -39,49 +45,32 @@ final class ListEngine {
 
     rootView.onCellHeightChange = { [weak self] index, height in
       guard let self else { return }
-      layoutEngine.updateHeight(at: index, height: height)
-      rootView.setContentHeight(layoutEngine.totalHeight)
-      scrollHandler.forceUpdate()
+
+      let delta = self.layout.updateHeight(at: index, height: height)
+      self.rootView.setContentHeight(self.layout.totalHeight)
+
+      if self.layout.offset(at: index) < self.rootView.scrollView.contentOffset.y {
+        self.rootView.scrollView.contentOffset.y += delta
+      }
+
+      self.scroll.reset()
     }
 
-    scrollHandler.layoutEngine = layoutEngine
-
-    scrollHandler.onVisibleRangeChange = { [weak self] start, end in
+    scroll.onVisibleRangeChange = { [weak self] start, end in
       guard let self else { return }
       self.rootView.mountCells(
         start: start,
         end: end,
-        layout: self.layoutEngine
+        layout: self.layout
       )
       self.onVisibleRangeChange?(start, end)
     }
   }
 
-  // MARK: - Layout
-
-func rebuildLayout() {
-  guard itemCount > 0, estimatedItemHeight > 0 else { return }
-
-  layoutEngine.build()
-  rootView.setContentHeight(layoutEngine.totalHeight)
-
-  // 🔥 CRITICAL FIX: force initial visible range calculation
-  scrollHandler.forceUpdate()
-
-  scrollHandler.handleScroll(
-    offsetY: rootView.scrollView.contentOffset.y,
-    viewportHeight: rootView.bounds.height
-  )
-}
-
-  // MARK: - Scroll API
-
   func scrollToIndex(_ index: Int, animated: Bool) {
-    guard index >= 0, index < layoutEngine.count else { return }
-
-    let y = layoutEngine.offset(at: index)
+    guard index >= 0, index < layout.count else { return }
     rootView.scrollView.setContentOffset(
-      CGPoint(x: 0, y: y),
+      CGPoint(x: 0, y: layout.offset(at: index)),
       animated: animated
     )
   }
