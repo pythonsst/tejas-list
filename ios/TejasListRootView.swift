@@ -5,8 +5,13 @@ final class TejasListRootView: UIView, UIScrollViewDelegate {
   let scrollView = UIScrollView()
   let contentView = UIView()
 
+  // Callbacks to Hybrid layer
   var onScroll: ((CGFloat, CGFloat) -> Void)?
   var onLayout: (() -> Void)?
+
+  // Cell management
+  private var visibleCells: [Int: TejasListCellView] = [:]
+  private var reusePool: [TejasListCellView] = []
 
   override init(frame: CGRect) {
     super.init(frame: frame)
@@ -15,63 +20,35 @@ final class TejasListRootView: UIView, UIScrollViewDelegate {
 
     scrollView.alwaysBounceVertical = true
     scrollView.showsVerticalScrollIndicator = true
+    scrollView.delegate = self
 
-    // DEBUG COLORS (REMOVE LATER)
+    // Debug colors (keep for now)
     backgroundColor = .systemBlue.withAlphaComponent(0.05)
     scrollView.backgroundColor = .systemYellow.withAlphaComponent(0.15)
-    contentView.backgroundColor = .systemRed.withAlphaComponent(0.15)
+    contentView.backgroundColor = .systemRed.withAlphaComponent(0.10)
 
-    scrollView.delegate = self
     addSubview(scrollView)
     scrollView.addSubview(contentView)
-
-    print("🟢 [ROOT:init] subviews added")
   }
 
   required init?(coder: NSCoder) {
     fatalError("init(coder:) not supported")
   }
 
-  override func didMoveToSuperview() {
-    super.didMoveToSuperview()
-    print("🟢 [ROOT:didMoveToSuperview] superview =", String(describing: superview))
-  }
-
-  override func didMoveToWindow() {
-    super.didMoveToWindow()
-    print("🟢 [ROOT:didMoveToWindow] window =", String(describing: window))
-  }
-
   override func layoutSubviews() {
     super.layoutSubviews()
 
-    print(
-      "🟢 [ROOT:layoutSubviews]",
-      "bounds =", bounds,
-      "scrollView.frame(before) =", scrollView.frame
-    )
+    print("🟢 [ROOT:layoutSubviews] bounds =", bounds)
 
     scrollView.frame = bounds
 
-    print(
-      "🟢 [ROOT:layoutSubviews]",
-      "scrollView.frame(after) =", scrollView.frame
-    )
-
     if bounds.width > 0 {
-      print("🟢 [ROOT:layoutSubviews] bounds valid → notifying Hybrid")
       onLayout?()
-    } else {
-      print("🔴 [ROOT:layoutSubviews] bounds.width == 0")
     }
   }
 
   func updateContent(height: CGFloat) {
-    print(
-      "🔵 [LAYOUT:updateContent]",
-      "height =", height,
-      "bounds.width =", bounds.width
-    )
+    print("🔵 [LAYOUT:updateContent] height =", height)
 
     contentView.frame = CGRect(
       x: 0,
@@ -87,6 +64,48 @@ final class TejasListRootView: UIView, UIScrollViewDelegate {
       "contentView.frame =", contentView.frame,
       "contentSize =", scrollView.contentSize
     )
+  }
+
+  // MARK: - Cell Virtualization
+
+  func updateVisibleCells(
+    start: Int,
+    end: Int,
+    itemHeight: CGFloat
+  ) {
+    print("🟣 [ROOT:updateVisibleCells]", start, end)
+
+    // Recycle cells that left viewport
+    for (index, cell) in visibleCells {
+      if index < start || index > end {
+        cell.prepareForReuse()
+        cell.removeFromSuperview()
+        reusePool.append(cell)
+        visibleCells.removeValue(forKey: index)
+
+        print("🔴 [CELL:recycle]", index)
+      }
+    }
+
+    // Mount missing cells
+    for index in start...end {
+      if visibleCells[index] == nil {
+        let cell = reusePool.popLast() ?? TejasListCellView()
+
+        cell.bind(index: index)
+        cell.frame = CGRect(
+          x: 0,
+          y: CGFloat(index) * itemHeight,
+          width: bounds.width,
+          height: itemHeight
+        )
+
+        contentView.addSubview(cell)
+        visibleCells[index] = cell
+
+        print("🟢 [CELL:mount]", index)
+      }
+    }
   }
 
   // MARK: - UIScrollViewDelegate

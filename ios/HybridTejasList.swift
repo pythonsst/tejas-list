@@ -5,12 +5,9 @@ final class HybridTejasList: HybridTejasListSpec {
   // MARK: - Required by Nitro
 
   let rootView = TejasListRootView()
-  var view: UIView {
-    print("🟣 [HYBRID:view] requested")
-    return rootView
-  }
+  var view: UIView { rootView }
 
-  // MARK: - Props (ABI)
+  // MARK: - Props (from JS)
 
   var itemCount: Double = 0 {
     didSet {
@@ -42,10 +39,9 @@ final class HybridTejasList: HybridTejasListSpec {
     rootView.onLayout = { [weak self] in
       guard let self = self else { return }
 
-      print("🟣 [HYBRID:onLayout] received")
+      print("🟣 [HYBRID:onLayout]")
 
       if self.needsLayoutUpdate {
-        print("🟣 [HYBRID:onLayout] running deferred layout")
         self.needsLayoutUpdate = false
         self.updateLayout()
       }
@@ -56,21 +52,14 @@ final class HybridTejasList: HybridTejasListSpec {
     }
   }
 
-  // MARK: - Methods (ABI)
+  // MARK: - Methods (from JS)
 
   func scrollToIndex(index: Double, animated: Bool) throws {
-    print(
-      "🟣 [HYBRID:scrollToIndex]",
-      "index =", index,
-      "animated =", animated
-    )
-
-    guard estimatedItemHeight > 0 else {
-      print("🔴 [HYBRID:scrollToIndex] estimatedItemHeight == 0")
-      return
-    }
+    guard estimatedItemHeight > 0 else { return }
 
     let y = CGFloat(index * estimatedItemHeight)
+
+    print("🟣 [HYBRID:scrollToIndex]", index)
 
     rootView.scrollView.setContentOffset(
       CGPoint(x: 0, y: y),
@@ -88,34 +77,26 @@ final class HybridTejasList: HybridTejasListSpec {
       "bounds =", rootView.bounds
     )
 
-    guard estimatedItemHeight > 0, itemCount > 0 else {
+    guard itemCount > 0, estimatedItemHeight > 0 else {
       print("🔴 [ABORT:updateLayout] missing data")
       return
     }
 
     if rootView.bounds.width == 0 {
-      print("🟡 [LAYOUT:updateLayout] bounds not ready → deferring")
+      print("🟡 [LAYOUT] deferring until bounds exist")
       needsLayoutUpdate = true
       return
     }
 
     let height = CGFloat(itemCount * estimatedItemHeight)
 
-    print(
-      "🔵 [LAYOUT:updateLayout]",
-      "computed height =", height
-    )
-
     rootView.updateContent(height: height)
   }
 
-  // MARK: - Scroll Math
+  // MARK: - Scroll math
 
   private func handleScroll(offsetY: CGFloat, viewportHeight: CGFloat) {
-    guard estimatedItemHeight > 0 else {
-      print("🔴 [ABORT:handleScroll] estimatedItemHeight == 0")
-      return
-    }
+    guard estimatedItemHeight > 0 else { return }
 
     let start = max(Int(offsetY / CGFloat(estimatedItemHeight)), 0)
     let end = min(
@@ -123,23 +104,19 @@ final class HybridTejasList: HybridTejasListSpec {
       Int(itemCount) - 1
     )
 
-    print(
-      "🟠 [SCROLL:range]",
-      "start =", start,
-      "end =", end
-    )
-
     if start != visibleStart || end != visibleEnd {
       visibleStart = start
       visibleEnd = end
 
-      print(
-        "🟣 [HYBRID:onVisibleRangeChange]",
-        start,
-        end
-      )
+      print("🟣 [HYBRID:visibleRange]", start, end)
 
       onVisibleRangeChange?(Double(start), Double(end))
+
+      rootView.updateVisibleCells(
+        start: start,
+        end: end,
+        itemHeight: CGFloat(estimatedItemHeight)
+      )
     }
   }
 }
