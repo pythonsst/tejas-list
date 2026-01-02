@@ -23,6 +23,8 @@ final class ListScrollHandler {
 
   private var lastStart: Int = -1
   private var lastEnd: Int = -1
+  private var currentOverscan: Int = 6
+
 
   private let velocityTracker = ScrollVelocityTracker()
 
@@ -42,18 +44,28 @@ final class ListScrollHandler {
     let velocity = velocityTracker.velocity(
       currentOffset: scrollOffset
     )
-
-    let overscan: Int
+    
+    let targetOverscan: Int
     switch velocity {
     case 3000...:
-      overscan = 1
+      targetOverscan = 1
     case 1500..<3000:
-      overscan = 2
+      targetOverscan = 2
     case 800..<1500:
-      overscan = 4
+      targetOverscan = 4
     default:
-      overscan = 6
+      targetOverscan = 6
     }
+
+    // 🔒 Hysteresis: only shrink overscan aggressively
+    if targetOverscan < currentOverscan {
+      currentOverscan = targetOverscan
+    } else if targetOverscan > currentOverscan + 1 {
+      currentOverscan += 1
+    }
+
+    let overscan = currentOverscan
+
 
     // Compute visible window using prefix sums
     let firstVisible = BinarySearch.firstVisibleIndex(
@@ -84,6 +96,7 @@ final class ListScrollHandler {
   func reset() {
     lastStart = -1
     lastEnd = -1
+    currentOverscan = 6 
     velocityTracker.reset()
   }
 }

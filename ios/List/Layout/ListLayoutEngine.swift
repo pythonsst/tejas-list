@@ -20,6 +20,7 @@ final class ListLayoutEngine {
       heights = []
       offsets = []
       totalHeight = 0
+      isDirty = false
       return
     }
 

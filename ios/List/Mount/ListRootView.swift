@@ -88,7 +88,7 @@ final class ListRootView: UIView, UIScrollViewDelegate {
       visibleCells.removeValue(forKey: index)
 
       // 📉 Instrument recycle
-      mountedCount -= 1
+      mountedCount = max(0, mountedCount - 1)
       totalRecycled += 1
     }
 
@@ -127,7 +127,10 @@ final class ListRootView: UIView, UIScrollViewDelegate {
       // 📈 Instrument mount
       mountedCount += 1
       totalMounted += 1
-      peakMountedCount = max(peakMountedCount, mountedCount)
+      if mountedCount > peakMountedCount {
+        peakMountedCount = mountedCount
+      }
+
     }
 
     // 🔍 Log snapshot (throttled by visible range changes)
