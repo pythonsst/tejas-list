@@ -1,32 +1,26 @@
 import UIKit
 import NitroModules
 
-/**
- * Nitro wrapper for the native list.
- *
- * Responsibilities:
- * - Receive props from JS
- * - Expose a UIView to Nitro
- * - Forward calls to ListCoordinator
- *
- * Contains NO logic.
- */
+/// Nitro-facing wrapper.
+/// Receives JS props and forwards them to the native coordinator.
 final class HybridTejasList: HybridTejasListSpec {
 
-  /// Owns all native behavior
   private let coordinator = ListCoordinator()
+  private var needsReload = false
 
   // MARK: - JS Props
 
   var scrollDirection: ScrollDirection? {
     didSet {
       coordinator.setScrollDirection(scrollDirection)
+      needsReload = true
     }
   }
 
   var itemCount: Double = 0 {
     didSet {
       coordinator.setItemCount(Int(itemCount))
+      needsReload = true
     }
   }
 
@@ -35,6 +29,7 @@ final class HybridTejasList: HybridTejasListSpec {
       coordinator.setEstimatedItemHeight(
         CGFloat(estimatedItemHeight)
       )
+      needsReload = true
     }
   }
 
@@ -58,10 +53,12 @@ final class HybridTejasList: HybridTejasListSpec {
   // MARK: - Nitro Lifecycle
 
   func beforeUpdate() {
-    // intentionally empty
+    // no-op
   }
 
   func afterUpdate() {
+    guard needsReload else { return }
+    needsReload = false
     coordinator.reload()
   }
 

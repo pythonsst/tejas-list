@@ -1,5 +1,7 @@
 import UIKit
 
+/// 1-D layout engine using prefix sums.
+/// Axis meaning is defined by the caller.
 final class ListLayoutEngine {
 
   private(set) var heights: [CGFloat] = []
@@ -34,7 +36,7 @@ final class ListLayoutEngine {
 
   @discardableResult
   func updateHeight(at index: Int, height: CGFloat) -> CGFloat {
-    guard index < heights.count else { return 0 }
+    guard index >= 0, index < heights.count else { return 0 }
 
     let delta = height - heights[index]
     guard delta != 0 else { return 0 }

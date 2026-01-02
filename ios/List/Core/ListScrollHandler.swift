@@ -1,5 +1,6 @@
 import UIKit
 
+/// Computes visible item range from scroll position.
 final class ListScrollHandler {
 
   weak var layout: ListLayoutEngine?
@@ -9,11 +10,11 @@ final class ListScrollHandler {
   private var lastStart = -1
   private var lastEnd = -1
 
-  // Default = vertical
+  /// Current scroll axis (set by coordinator)
   var scrollAxis: ScrollAxis = .vertical
 
   func handleScroll(
-    offset: CGFloat,
+    scrollOffset: CGFloat,
     viewportSize: CGFloat
   ) {
     guard
@@ -24,7 +25,7 @@ final class ListScrollHandler {
 
     let first = max(
       BinarySearch.firstVisibleIndex(
-        offsetY: offset,
+        scrollOffset: scrollOffset,
         offsets: layout.offsets
       ) - overscan,
       0
@@ -32,8 +33,8 @@ final class ListScrollHandler {
 
     let last = min(
       BinarySearch.lastVisibleIndex(
-        offsetY: offset,
-        viewportHeight: viewportSize,
+        scrollOffset: scrollOffset,
+        viewportSize: viewportSize,
         offsets: layout.offsets
       ) + overscan,
       layout.count - 1

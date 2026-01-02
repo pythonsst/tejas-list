@@ -1,46 +1,31 @@
 import UIKit
 
-/**
- * ListCoordinator
- *
- * Central coordinator for the native list.
- * Translates props into native behavior and orchestrates:
- * - layout
- * - scrolling
- * - cell mounting
- */
+/// Native orchestrator for layout, scrolling, and cell mounting.
 final class ListCoordinator {
 
-  /// Root view exposed to the Hybrid layer
   let rootView = ListRootView()
-
-  /// Emits currently visible item range
   var onVisibleRangeChange: ((Int, Int) -> Void)?
 
   private let layoutEngine = ListLayoutEngine()
   private let scrollHandler = ListScrollHandler()
 
-  /// Current scroll axis (default = vertical)
   private var scrollAxis: ScrollAxis = .vertical
+  private var needsLayoutBuild = true
 
   init() {
-    // Scroll math needs layout data
     scrollHandler.layout = layoutEngine
 
-    // Build layout once bounds are known
     rootView.onLayoutReady = { [weak self] in
       self?.rebuildLayoutAndMount()
     }
 
-    // Forward scroll events (axis-agnostic)
-    rootView.onScroll = { [weak self] offset, viewportSize in
+    rootView.onScroll = { [weak self] scrollOffset, viewportSize in
       self?.scrollHandler.handleScroll(
-        offset: offset,
+        scrollOffset: scrollOffset,
         viewportSize: viewportSize
       )
     }
 
-    // Mount cells when visible range changes
     scrollHandler.onVisibleRangeChange = { [weak self] start, end in
       guard let self else { return }
 
@@ -53,7 +38,6 @@ final class ListCoordinator {
       self.onVisibleRangeChange?(start, end)
     }
 
-    // Handle dynamic height changes without breaking scroll position
     rootView.onCellHeightChange = { [weak self] index, height in
       guard let self else { return }
 
@@ -93,7 +77,7 @@ final class ListCoordinator {
     }
   }
 
-  // MARK: - Public API (called from HybridTejasList)
+  // MARK: - Public API
 
   func setScrollDirection(_ direction: ScrollDirection?) {
     scrollAxis = (direction == .horizontal) ? .horizontal : .vertical
@@ -101,25 +85,26 @@ final class ListCoordinator {
     scrollHandler.scrollAxis = scrollAxis
     rootView.setScrollAxis(scrollAxis)
 
+    needsLayoutBuild = true   // 🔴 REQUIRED
     scrollHandler.reset()
     rebuildLayoutAndMount()
   }
-  
+
   func reload() {
     scrollHandler.reset()
     rebuildLayoutAndMount()
   }
 
-
   func setItemCount(_ count: Int) {
     layoutEngine.itemCount = count
+    needsLayoutBuild = true
   }
 
   func setEstimatedItemHeight(_ height: CGFloat) {
     layoutEngine.estimatedItemHeight = height
+    needsLayoutBuild = true
   }
 
-  /// Scrolls to a specific item index
   func scrollToIndex(_ index: Int, animated: Bool) {
     guard index >= 0, index < layoutEngine.count else { return }
 
@@ -140,13 +125,16 @@ final class ListCoordinator {
 
   // MARK: - Internal
 
-  /// Builds layout and guarantees first visible cells are mounted
   private func rebuildLayoutAndMount() {
     guard
+      needsLayoutBuild,
       layoutEngine.itemCount > 0,
-      layoutEngine.estimatedItemHeight > 0
+      layoutEngine.estimatedItemHeight > 0,
+      rootView.bounds.width > 0,
+      rootView.bounds.height > 0
     else { return }
 
+    needsLayoutBuild = false
     layoutEngine.build()
 
     let viewportSize =
@@ -168,14 +156,15 @@ final class ListCoordinator {
 
     scrollHandler.reset()
 
-    let offset =
+    let scrollOffset =
       scrollAxis == .horizontal
         ? rootView.scrollView.contentOffset.x
         : rootView.scrollView.contentOffset.y
 
     scrollHandler.handleScroll(
-      offset: offset,
+      scrollOffset: scrollOffset,
       viewportSize: viewportSize
     )
   }
+
 }

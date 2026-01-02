@@ -1,17 +1,16 @@
 import UIKit
 
+/// Native list cell.
+/// Measures itself only when content or axis changes.
 final class ListCellView: UIView {
 
   private let label = UILabel()
   private(set) var index: Int = -1
 
-  /// Called when the measured size changes
   var onSizeMeasured: ((CGFloat) -> Void)?
 
-  /// Cache last reported size to avoid layout thrashing
   private var lastMeasuredSize: CGFloat = -1
-
-  /// Current scroll axis (default = vertical)
+  private var cachedIntrinsicSize: CGSize = .zero
   private var scrollAxis: ScrollAxis = .vertical
 
   override init(frame: CGRect) {
@@ -31,7 +30,7 @@ final class ListCellView: UIView {
 
   func setScrollAxis(_ axis: ScrollAxis) {
     scrollAxis = axis
-    lastMeasuredSize = -1 // force re-measure
+    lastMeasuredSize = -1
     setNeedsLayout()
   }
 
@@ -44,8 +43,8 @@ final class ListCellView: UIView {
 
     let measuredSize: CGFloat =
       scrollAxis == .horizontal
-        ? label.intrinsicContentSize.width + 16
-        : label.intrinsicContentSize.height + 16
+        ? cachedIntrinsicSize.width + 16
+        : cachedIntrinsicSize.height + 16
 
     guard measuredSize != lastMeasuredSize else { return }
 
@@ -58,6 +57,9 @@ final class ListCellView: UIView {
   func bind(index: Int) {
     self.index = index
     label.text = "Row \(index)"
+    cachedIntrinsicSize = label.intrinsicContentSize
+    lastMeasuredSize = -1
+    setNeedsLayout()
 
     backgroundColor =
       index.isMultiple(of: 2)
@@ -70,6 +72,7 @@ final class ListCellView: UIView {
   func prepareForReuse() {
     index = -1
     label.text = nil
+    cachedIntrinsicSize = .zero
     onSizeMeasured = nil
     lastMeasuredSize = -1
   }

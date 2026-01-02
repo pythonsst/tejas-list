@@ -1,20 +1,21 @@
 import UIKit
 
+/// Root scroll container for the native list.
+/// Owns view recycling and mounting.
 final class ListRootView: UIView, UIScrollViewDelegate {
 
   let scrollView = UIScrollView()
   private let contentView = UIView()
 
-  /// (offset, viewportSize)
+  /// (scrollOffset, viewportSize)
   var onScroll: ((CGFloat, CGFloat) -> Void)?
   var onLayoutReady: (() -> Void)?
   var onCellHeightChange: ((Int, CGFloat) -> Void)?
 
   private var visibleCells: [Int: ListCellView] = [:]
-  private var reusePool: [ListCellView] = []
+  private let reusePool = ListReusePool()
   private var didLayoutOnce = false
 
-  /// Default = vertical
   private var scrollAxis: ScrollAxis = .vertical
 
   override init(frame: CGRect) {
@@ -73,15 +74,14 @@ final class ListRootView: UIView, UIScrollViewDelegate {
   ) {
     // Recycle out-of-range cells
     for (index, cell) in visibleCells where index < start || index > end {
-      cell.prepareForReuse()
       cell.removeFromSuperview()
-      reusePool.append(cell)
+      reusePool.recycle(cell)
       visibleCells.removeValue(forKey: index)
     }
 
     // Mount missing cells
     for index in start...end where visibleCells[index] == nil {
-      let cell = reusePool.popLast() ?? ListCellView()
+      let cell = reusePool.dequeue()
 
       cell.setScrollAxis(scrollAxis)
       cell.bind(index: index)

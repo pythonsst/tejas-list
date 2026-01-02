@@ -1,9 +1,11 @@
 import CoreGraphics
 
+/// Binary search helpers for visible-range calculation.
+/// Operates on a 1-D axis defined by the caller.
 enum BinarySearch {
 
   static func firstVisibleIndex(
-    offsetY: CGFloat,
+    scrollOffset: CGFloat,
     offsets: [CGFloat]
   ) -> Int {
     var low = 0
@@ -11,7 +13,7 @@ enum BinarySearch {
 
     while low <= high {
       let mid = (low + high) >> 1
-      if offsets[mid] <= offsetY {
+      if offsets[mid] <= scrollOffset {
         low = mid + 1
       } else {
         high = mid - 1
@@ -22,11 +24,11 @@ enum BinarySearch {
   }
 
   static func lastVisibleIndex(
-    offsetY: CGFloat,
-    viewportHeight: CGFloat,
+    scrollOffset: CGFloat,
+    viewportSize: CGFloat,
     offsets: [CGFloat]
   ) -> Int {
-    let target = offsetY + viewportHeight
+    let target = scrollOffset + viewportSize
     var low = 0
     var high = offsets.count - 1
 
