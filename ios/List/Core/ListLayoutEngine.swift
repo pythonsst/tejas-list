@@ -1,7 +1,7 @@
 import UIKit
 
-/// 1-D layout engine using prefix sums.
-/// Axis meaning is defined by the caller.
+/// 1-D prefix-sum layout engine.
+/// Offsets are rebuilt atomically only via commit().
 final class ListLayoutEngine {
 
   private(set) var heights: [CGFloat] = []
@@ -11,7 +11,18 @@ final class ListLayoutEngine {
   var itemCount: Int = 0
   var estimatedItemHeight: CGFloat = 0
 
+  private var isDirty = false
+
+  // MARK: - Initial build
+
   func build() {
+    guard itemCount > 0 else {
+      heights = []
+      offsets = []
+      totalHeight = 0
+      return
+    }
+
     heights = Array(repeating: estimatedItemHeight, count: itemCount)
     offsets = Array(repeating: 0, count: itemCount)
 
@@ -22,6 +33,7 @@ final class ListLayoutEngine {
     }
 
     totalHeight = running
+    isDirty = false
   }
 
   var count: Int { heights.count }
@@ -34,20 +46,27 @@ final class ListLayoutEngine {
     heights[index]
   }
 
-  @discardableResult
-  func updateHeight(at index: Int, height: CGFloat) -> CGFloat {
-    guard index >= 0, index < heights.count else { return 0 }
+  // MARK: - Height invalidation
 
-    let delta = height - heights[index]
-    guard delta != 0 else { return 0 }
-
+  func markHeightDirty(at index: Int, height: CGFloat) {
+    guard index >= 0, index < heights.count else { return }
+    guard heights[index] != height else { return }
     heights[index] = height
+    isDirty = true
+  }
 
-    for i in (index + 1)..<offsets.count {
-      offsets[i] += delta
+  // MARK: - Atomic commit
+
+  func commit() {
+    guard isDirty else { return }
+
+    var running: CGFloat = 0
+    for i in 0..<heights.count {
+      offsets[i] = running
+      running += heights[i]
     }
 
-    totalHeight += delta
-    return delta
+    totalHeight = running
+    isDirty = false
   }
 }

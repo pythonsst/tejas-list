@@ -1,6 +1,6 @@
 import UIKit
 
-/// Native orchestrator for layout, scrolling, and cell mounting.
+/// Native orchestrator for layout, scrolling, and mounting.
 final class ListCoordinator {
 
   let rootView = ListRootView()
@@ -19,47 +19,25 @@ final class ListCoordinator {
       self?.rebuildLayoutAndMount()
     }
 
-    rootView.onScroll = { [weak self] scrollOffset, viewportSize in
+    rootView.onScroll = { [weak self] offset, viewport in
       self?.scrollHandler.handleScroll(
-        scrollOffset: scrollOffset,
-        viewportSize: viewportSize
+        scrollOffset: offset,
+        viewportSize: viewport
       )
     }
 
     scrollHandler.onVisibleRangeChange = { [weak self] start, end in
       guard let self else { return }
-
-      self.rootView.mountCells(
-        start: start,
-        end: end,
-        layout: self.layoutEngine
-      )
-
+      self.rootView.mountCells(start: start, end: end, layout: self.layoutEngine)
       self.onVisibleRangeChange?(start, end)
     }
 
+    // 🔥 FIXED MEASUREMENT PIPELINE
     rootView.onCellHeightChange = { [weak self] index, height in
       guard let self else { return }
 
-      let delta = self.layoutEngine.updateHeight(
-        at: index,
-        height: height
-      )
-
-      guard delta != 0 else { return }
-
-      let currentOffset =
-        self.scrollAxis == .horizontal
-          ? self.rootView.scrollView.contentOffset.x
-          : self.rootView.scrollView.contentOffset.y
-
-      if self.layoutEngine.offset(at: index) < currentOffset {
-        if self.scrollAxis == .horizontal {
-          self.rootView.scrollView.contentOffset.x += delta
-        } else {
-          self.rootView.scrollView.contentOffset.y += delta
-        }
-      }
+      self.layoutEngine.markHeightDirty(at: index, height: height)
+      self.layoutEngine.commit()
 
       self.rootView.setContentSize(
         self.scrollAxis == .horizontal
@@ -73,21 +51,35 @@ final class ListCoordinator {
             )
       )
 
+      self.rootView.relayoutVisibleCells(
+        from: index,
+        layout: self.layoutEngine
+      )
+
+      let scrollOffset =
+        self.scrollAxis == .horizontal
+          ? self.rootView.scrollView.contentOffset.x
+          : self.rootView.scrollView.contentOffset.y
+
+      let viewport =
+        self.scrollAxis == .horizontal
+          ? self.rootView.bounds.width
+          : self.rootView.bounds.height
+
       self.scrollHandler.reset()
+      self.scrollHandler.handleScroll(
+        scrollOffset: scrollOffset,
+        viewportSize: viewport
+      )
     }
   }
 
-  // MARK: - Public API
-
   func setScrollDirection(_ direction: ScrollDirection?) {
-    scrollAxis = (direction == .horizontal) ? .horizontal : .vertical
-
+    scrollAxis = direction == .horizontal ? .horizontal : .vertical
     scrollHandler.scrollAxis = scrollAxis
     rootView.setScrollAxis(scrollAxis)
-
-    needsLayoutBuild = true   // 🔴 REQUIRED
-    scrollHandler.reset()
-    rebuildLayoutAndMount()
+    needsLayoutBuild = true
+    reload()
   }
 
   func reload() {
@@ -108,22 +100,14 @@ final class ListCoordinator {
   func scrollToIndex(_ index: Int, animated: Bool) {
     guard index >= 0, index < layoutEngine.count else { return }
 
-    let targetOffset = layoutEngine.offset(at: index)
-
-    if scrollAxis == .horizontal {
-      rootView.scrollView.setContentOffset(
-        CGPoint(x: targetOffset, y: 0),
-        animated: animated
-      )
-    } else {
-      rootView.scrollView.setContentOffset(
-        CGPoint(x: 0, y: targetOffset),
-        animated: animated
-      )
-    }
+    let offset = layoutEngine.offset(at: index)
+    rootView.scrollView.setContentOffset(
+      scrollAxis == .horizontal
+        ? CGPoint(x: offset, y: 0)
+        : CGPoint(x: 0, y: offset),
+      animated: animated
+    )
   }
-
-  // MARK: - Internal
 
   private func rebuildLayoutAndMount() {
     guard
@@ -136,11 +120,6 @@ final class ListCoordinator {
 
     needsLayoutBuild = false
     layoutEngine.build()
-
-    let viewportSize =
-      scrollAxis == .horizontal
-        ? rootView.bounds.width
-        : rootView.bounds.height
 
     rootView.setContentSize(
       scrollAxis == .horizontal
@@ -156,15 +135,19 @@ final class ListCoordinator {
 
     scrollHandler.reset()
 
-    let scrollOffset =
+    let offset =
       scrollAxis == .horizontal
         ? rootView.scrollView.contentOffset.x
         : rootView.scrollView.contentOffset.y
 
+    let viewport =
+      scrollAxis == .horizontal
+        ? rootView.bounds.width
+        : rootView.bounds.height
+
     scrollHandler.handleScroll(
-      scrollOffset: scrollOffset,
-      viewportSize: viewportSize
+      scrollOffset: offset,
+      viewportSize: viewport
     )
   }
-
 }

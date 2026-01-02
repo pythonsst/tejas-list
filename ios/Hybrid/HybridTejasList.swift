@@ -26,9 +26,7 @@ final class HybridTejasList: HybridTejasListSpec {
 
   var estimatedItemHeight: Double = 0 {
     didSet {
-      coordinator.setEstimatedItemHeight(
-        CGFloat(estimatedItemHeight)
-      )
+      coordinator.setEstimatedItemHeight(CGFloat(estimatedItemHeight))
       needsReload = true
     }
   }
@@ -36,10 +34,7 @@ final class HybridTejasList: HybridTejasListSpec {
   var onVisibleRangeChange: ((Double, Double) -> Void)? {
     didSet {
       coordinator.onVisibleRangeChange = { [weak self] start, end in
-        self?.onVisibleRangeChange?(
-          Double(start),
-          Double(end)
-        )
+        self?.onVisibleRangeChange?(Double(start), Double(end))
       }
     }
   }
@@ -52,9 +47,7 @@ final class HybridTejasList: HybridTejasListSpec {
 
   // MARK: - Nitro Lifecycle
 
-  func beforeUpdate() {
-    // no-op
-  }
+  func beforeUpdate() {}
 
   func afterUpdate() {
     guard needsReload else { return }
@@ -64,13 +57,7 @@ final class HybridTejasList: HybridTejasListSpec {
 
   // MARK: - Methods
 
-  func scrollToIndex(
-    index: Double,
-    animated: Bool
-  ) throws {
-    coordinator.scrollToIndex(
-      Int(index),
-      animated: animated
-    )
+  func scrollToIndex(index: Double, animated: Bool) throws {
+    coordinator.scrollToIndex(Int(index), animated: animated)
   }
 }

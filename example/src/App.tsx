@@ -21,7 +21,7 @@ const App: React.FC = () => {
   return (
     <SafeAreaView style={styles.container}>
       <TejasList
-        scrollDirection="horizontal"
+        // scrollDirection="horizontal"
         itemCount={ITEM_COUNT}
         estimatedItemHeight={ESTIMATED_ITEM_HEIGHT}
         onVisibleRangeChange={handleVisibleRangeChange}

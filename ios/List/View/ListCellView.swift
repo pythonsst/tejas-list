@@ -1,11 +1,13 @@
 import UIKit
 
 /// Native list cell.
-/// Measures itself only when content or axis changes.
+/// Measures itself only when bound index matches.
 final class ListCellView: UIView {
 
   private let label = UILabel()
+
   private(set) var index: Int = -1
+  private var boundIndex: Int = -1
 
   var onSizeMeasured: ((CGFloat) -> Void)?
 
@@ -26,51 +28,40 @@ final class ListCellView: UIView {
     fatalError()
   }
 
-  // MARK: - Axis
-
   func setScrollAxis(_ axis: ScrollAxis) {
     scrollAxis = axis
     lastMeasuredSize = -1
     setNeedsLayout()
   }
 
-  // MARK: - Layout
-
   override func layoutSubviews() {
     super.layoutSubviews()
-
     label.frame = bounds
 
-    let measuredSize: CGFloat =
+    let measured =
       scrollAxis == .horizontal
         ? cachedIntrinsicSize.width + 16
         : cachedIntrinsicSize.height + 16
 
-    guard measuredSize != lastMeasuredSize else { return }
+    guard measured != lastMeasuredSize else { return }
+    guard index == boundIndex else { return } // 🔒 REQUIRED
 
-    lastMeasuredSize = measuredSize
-    onSizeMeasured?(measuredSize)
+    lastMeasuredSize = measured
+    onSizeMeasured?(measured)
   }
-
-  // MARK: - Binding
 
   func bind(index: Int) {
     self.index = index
+    self.boundIndex = index
     label.text = "Row \(index)"
     cachedIntrinsicSize = label.intrinsicContentSize
     lastMeasuredSize = -1
     setNeedsLayout()
-
-    backgroundColor =
-      index.isMultiple(of: 2)
-        ? .systemBlue.withAlphaComponent(0.15)
-        : .systemGreen.withAlphaComponent(0.15)
   }
-
-  // MARK: - Reuse
 
   func prepareForReuse() {
     index = -1
+    boundIndex = -1
     label.text = nil
     cachedIntrinsicSize = .zero
     onSizeMeasured = nil

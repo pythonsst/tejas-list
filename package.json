@@ -34,6 +34,7 @@
     "!**/.*"
   ],
   "scripts": {
+    "ios": "kill -9 $(lsof -ti:8081) 2>/dev/null || true && cd example && npx react-native start --reset-cache & sleep 2 && npx react-native run-ios",
     "clean:ios": "cd example/ios && rm -rf Pods Podfile.lock build && pod install && cd ../..",
     "example": "yarn workspace react-native-tejas-list-example",
     "clean": "del-cli android/build example/android/build example/android/app/build example/ios/build lib",

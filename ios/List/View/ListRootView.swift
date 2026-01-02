@@ -1,13 +1,11 @@
 import UIKit
 
 /// Root scroll container for the native list.
-/// Owns view recycling and mounting.
 final class ListRootView: UIView, UIScrollViewDelegate {
 
   let scrollView = UIScrollView()
   private let contentView = UIView()
 
-  /// (scrollOffset, viewportSize)
   var onScroll: ((CGFloat, CGFloat) -> Void)?
   var onLayoutReady: (() -> Void)?
   var onCellHeightChange: ((Int, CGFloat) -> Void)?
@@ -15,17 +13,13 @@ final class ListRootView: UIView, UIScrollViewDelegate {
   private var visibleCells: [Int: ListCellView] = [:]
   private let reusePool = ListReusePool()
   private var didLayoutOnce = false
-
   private var scrollAxis: ScrollAxis = .vertical
 
   override init(frame: CGRect) {
     super.init(frame: frame)
 
     scrollView.delegate = self
-    scrollView.alwaysBounceVertical = true
-    scrollView.alwaysBounceHorizontal = false
     scrollView.contentInsetAdjustmentBehavior = .never
-
     addSubview(scrollView)
     scrollView.addSubview(contentView)
   }
@@ -34,21 +28,11 @@ final class ListRootView: UIView, UIScrollViewDelegate {
     fatalError()
   }
 
-  // MARK: - Axis
-
   func setScrollAxis(_ axis: ScrollAxis) {
     scrollAxis = axis
-
-    if axis == .horizontal {
-      scrollView.alwaysBounceHorizontal = true
-      scrollView.alwaysBounceVertical = false
-    } else {
-      scrollView.alwaysBounceVertical = true
-      scrollView.alwaysBounceHorizontal = false
-    }
+    scrollView.alwaysBounceVertical = axis == .vertical
+    scrollView.alwaysBounceHorizontal = axis == .horizontal
   }
-
-  // MARK: - Layout
 
   override func layoutSubviews() {
     super.layoutSubviews()
@@ -65,21 +49,13 @@ final class ListRootView: UIView, UIScrollViewDelegate {
     scrollView.contentSize = size
   }
 
-  // MARK: - Cell Mounting
-
-  func mountCells(
-    start: Int,
-    end: Int,
-    layout: ListLayoutEngine
-  ) {
-    // Recycle out-of-range cells
+  func mountCells(start: Int, end: Int, layout: ListLayoutEngine) {
     for (index, cell) in visibleCells where index < start || index > end {
       cell.removeFromSuperview()
       reusePool.recycle(cell)
       visibleCells.removeValue(forKey: index)
     }
 
-    // Mount missing cells
     for index in start...end where visibleCells[index] == nil {
       let cell = reusePool.dequeue()
 
@@ -95,37 +71,32 @@ final class ListRootView: UIView, UIScrollViewDelegate {
 
       cell.frame =
         scrollAxis == .horizontal
-          ? CGRect(
-              x: offset,
-              y: 0,
-              width: size,
-              height: bounds.height
-            )
-          : CGRect(
-              x: 0,
-              y: offset,
-              width: bounds.width,
-              height: size
-            )
+          ? CGRect(x: offset, y: 0, width: size, height: bounds.height)
+          : CGRect(x: 0, y: offset, width: bounds.width, height: size)
 
       contentView.addSubview(cell)
       visibleCells[index] = cell
     }
   }
 
-  // MARK: - Scroll Delegate
+  /// 🔥 REQUIRED FIX
+  func relayoutVisibleCells(from startIndex: Int, layout: ListLayoutEngine) {
+    for (index, cell) in visibleCells where index >= startIndex {
+      let offset = layout.offset(at: index)
+      let size = layout.height(at: index)
+
+      cell.frame =
+        scrollAxis == .horizontal
+          ? CGRect(x: offset, y: 0, width: size, height: bounds.height)
+          : CGRect(x: 0, y: offset, width: bounds.width, height: size)
+    }
+  }
 
   func scrollViewDidScroll(_ scrollView: UIScrollView) {
     if scrollAxis == .horizontal {
-      onScroll?(
-        scrollView.contentOffset.x,
-        scrollView.bounds.width
-      )
+      onScroll?(scrollView.contentOffset.x, scrollView.bounds.width)
     } else {
-      onScroll?(
-        scrollView.contentOffset.y,
-        scrollView.bounds.height
-      )
+      onScroll?(scrollView.contentOffset.y, scrollView.bounds.height)
     }
   }
 }

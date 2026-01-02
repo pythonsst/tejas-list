@@ -1,7 +1,5 @@
 import UIKit
 
-/// Reuse pool for native list cells.
-/// Guarantees bounded memory and clean reuse.
 final class ListReusePool {
 
   private var pool: [ListCellView] = []
@@ -13,7 +11,6 @@ final class ListReusePool {
 
   func recycle(_ cell: ListCellView) {
     cell.prepareForReuse()
-
     guard pool.count < maxPoolSize else { return }
     pool.append(cell)
   }
