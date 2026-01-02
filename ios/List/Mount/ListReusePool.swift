@@ -1,5 +1,3 @@
-import UIKit
-
 final class ListReusePool {
 
   private var pool: [ListCellView] = []
