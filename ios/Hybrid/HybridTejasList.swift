@@ -16,7 +16,13 @@ final class HybridTejasList: HybridTejasListSpec {
   /// Owns all native behavior
   private let coordinator = ListCoordinator()
 
-  // JS props
+  // MARK: - JS Props
+
+  var scrollDirection: ScrollDirection? {
+    didSet {
+      coordinator.setScrollDirection(scrollDirection)
+    }
+  }
 
   var itemCount: Double = 0 {
     didSet {
@@ -43,17 +49,23 @@ final class HybridTejasList: HybridTejasListSpec {
     }
   }
 
-  // Nitro-required view
+  // MARK: - Nitro View
 
   var view: UIView {
     coordinator.rootView
   }
 
-  // Nitro lifecycle
+  // MARK: - Nitro Lifecycle
 
-  func reload() throws {
-    coordinator.rebuildLayoutAndMount()
+  func beforeUpdate() {
+    // intentionally empty
   }
+
+  func afterUpdate() {
+    coordinator.reload()
+  }
+
+  // MARK: - Methods
 
   func scrollToIndex(
     index: Double,

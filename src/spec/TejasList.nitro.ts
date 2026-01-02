@@ -4,6 +4,8 @@ import type {
   HybridViewMethods,
 } from 'react-native-nitro-modules';
 
+export type ScrollDirection = 'vertical' | 'horizontal';
+
 export interface TejasListProps extends HybridViewProps {
   /**
    * Total number of items in the list.
@@ -15,6 +17,8 @@ export interface TejasListProps extends HybridViewProps {
    * Estimated height of a single item (used by native layout).
    */
   estimatedItemHeight: number;
+
+  scrollDirection?: ScrollDirection;
 
   /**
    * Native-driven visible range callback.

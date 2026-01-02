@@ -4,7 +4,10 @@ import UIKit
  * ListCoordinator
  *
  * Central coordinator for the native list.
- * Connects layout, scrolling, and view mounting.
+ * Translates props into native behavior and orchestrates:
+ * - layout
+ * - scrolling
+ * - cell mounting
  */
 final class ListCoordinator {
 
@@ -17,6 +20,9 @@ final class ListCoordinator {
   private let layoutEngine = ListLayoutEngine()
   private let scrollHandler = ListScrollHandler()
 
+  /// Current scroll axis (default = vertical)
+  private var scrollAxis: ScrollAxis = .vertical
+
   init() {
     // Scroll math needs layout data
     scrollHandler.layout = layoutEngine
@@ -26,11 +32,11 @@ final class ListCoordinator {
       self?.rebuildLayoutAndMount()
     }
 
-    // Forward scroll events
-    rootView.onScroll = { [weak self] offsetY, height in
+    // Forward scroll events (axis-agnostic)
+    rootView.onScroll = { [weak self] offset, viewportSize in
       self?.scrollHandler.handleScroll(
-        offsetY: offsetY,
-        viewportHeight: height
+        offset: offset,
+        viewportSize: viewportSize
       )
     }
 
@@ -58,47 +64,52 @@ final class ListCoordinator {
 
       guard delta != 0 else { return }
 
-      if self.layoutEngine.offset(at: index)
-        < self.rootView.scrollView.contentOffset.y {
+      let currentOffset =
+        self.scrollAxis == .horizontal
+          ? self.rootView.scrollView.contentOffset.x
+          : self.rootView.scrollView.contentOffset.y
 
-        self.rootView.scrollView.contentOffset.y += delta
+      if self.layoutEngine.offset(at: index) < currentOffset {
+        if self.scrollAxis == .horizontal {
+          self.rootView.scrollView.contentOffset.x += delta
+        } else {
+          self.rootView.scrollView.contentOffset.y += delta
+        }
       }
 
-      self.rootView.setContentHeight(
-        self.layoutEngine.totalHeight
+      self.rootView.setContentSize(
+        self.scrollAxis == .horizontal
+          ? CGSize(
+              width: self.layoutEngine.totalHeight,
+              height: self.rootView.bounds.height
+            )
+          : CGSize(
+              width: self.rootView.bounds.width,
+              height: self.layoutEngine.totalHeight
+            )
       )
 
-      scrollHandler.reset()
+      self.scrollHandler.reset()
     }
   }
 
-  /// Builds layout and guarantees first visible cells are mounted
-  func rebuildLayoutAndMount() {
-    guard
-      layoutEngine.itemCount > 0,
-      layoutEngine.estimatedItemHeight > 0,
-      rootView.bounds.height > 0
-    else { return }
+  // MARK: - Public API (called from HybridTejasList)
 
-    layoutEngine.build()
-    rootView.setContentHeight(layoutEngine.totalHeight)
+  func setScrollDirection(_ direction: ScrollDirection?) {
+    scrollAxis = (direction == .horizontal) ? .horizontal : .vertical
+
+    scrollHandler.scrollAxis = scrollAxis
+    rootView.setScrollAxis(scrollAxis)
+
     scrollHandler.reset()
-
-    scrollHandler.handleScroll(
-      offsetY: rootView.scrollView.contentOffset.y,
-      viewportHeight: rootView.bounds.height
-    )
+    rebuildLayoutAndMount()
+  }
+  
+  func reload() {
+    scrollHandler.reset()
+    rebuildLayoutAndMount()
   }
 
-  /// Scrolls to a specific item index
-  func scrollToIndex(_ index: Int, animated: Bool) {
-    guard index >= 0, index < layoutEngine.count else { return }
-
-    rootView.scrollView.setContentOffset(
-      CGPoint(x: 0, y: layoutEngine.offset(at: index)),
-      animated: animated
-    )
-  }
 
   func setItemCount(_ count: Int) {
     layoutEngine.itemCount = count
@@ -106,5 +117,65 @@ final class ListCoordinator {
 
   func setEstimatedItemHeight(_ height: CGFloat) {
     layoutEngine.estimatedItemHeight = height
+  }
+
+  /// Scrolls to a specific item index
+  func scrollToIndex(_ index: Int, animated: Bool) {
+    guard index >= 0, index < layoutEngine.count else { return }
+
+    let targetOffset = layoutEngine.offset(at: index)
+
+    if scrollAxis == .horizontal {
+      rootView.scrollView.setContentOffset(
+        CGPoint(x: targetOffset, y: 0),
+        animated: animated
+      )
+    } else {
+      rootView.scrollView.setContentOffset(
+        CGPoint(x: 0, y: targetOffset),
+        animated: animated
+      )
+    }
+  }
+
+  // MARK: - Internal
+
+  /// Builds layout and guarantees first visible cells are mounted
+  private func rebuildLayoutAndMount() {
+    guard
+      layoutEngine.itemCount > 0,
+      layoutEngine.estimatedItemHeight > 0
+    else { return }
+
+    layoutEngine.build()
+
+    let viewportSize =
+      scrollAxis == .horizontal
+        ? rootView.bounds.width
+        : rootView.bounds.height
+
+    rootView.setContentSize(
+      scrollAxis == .horizontal
+        ? CGSize(
+            width: layoutEngine.totalHeight,
+            height: rootView.bounds.height
+          )
+        : CGSize(
+            width: rootView.bounds.width,
+            height: layoutEngine.totalHeight
+          )
+    )
+
+    scrollHandler.reset()
+
+    let offset =
+      scrollAxis == .horizontal
+        ? rootView.scrollView.contentOffset.x
+        : rootView.scrollView.contentOffset.y
+
+    scrollHandler.handleScroll(
+      offset: offset,
+      viewportSize: viewportSize
+    )
   }
 }

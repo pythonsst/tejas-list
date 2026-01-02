@@ -9,19 +9,22 @@ final class ListScrollHandler {
   private var lastStart = -1
   private var lastEnd = -1
 
+  // Default = vertical
+  var scrollAxis: ScrollAxis = .vertical
+
   func handleScroll(
-    offsetY: CGFloat,
-    viewportHeight: CGFloat
+    offset: CGFloat,
+    viewportSize: CGFloat
   ) {
     guard
       let layout,
       layout.count > 0,
-      viewportHeight > 0
+      viewportSize > 0
     else { return }
 
     let first = max(
       BinarySearch.firstVisibleIndex(
-        offsetY: offsetY,
+        offsetY: offset,
         offsets: layout.offsets
       ) - overscan,
       0
@@ -29,8 +32,8 @@ final class ListScrollHandler {
 
     let last = min(
       BinarySearch.lastVisibleIndex(
-        offsetY: offsetY,
-        viewportHeight: viewportHeight,
+        offsetY: offset,
+        viewportHeight: viewportSize,
         offsets: layout.offsets
       ) + overscan,
       layout.count - 1
