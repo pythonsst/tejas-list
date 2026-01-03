@@ -53,8 +53,11 @@ final class ListScrollHandler {
     // 1. Velocity classification
     // ─────────────────────────────────────
 
-    let velocity = velocityTracker.velocity(currentOffset: scrollOffset)
-    isFastScrolling = velocity > 1200
+    let signedVelocity = velocityTracker.velocity(currentOffset: scrollOffset)
+    let absVelocity = abs(signedVelocity)
+
+    isFastScrolling = absVelocity > 1200
+
 
     // ─────────────────────────────────────
     // 2. Target overscan (velocity-driven)
