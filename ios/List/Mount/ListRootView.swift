@@ -1,4 +1,5 @@
 import UIKit
+import QuartzCore
 
 /// Root scroll container for the native list.
 /// Owns mounting, recycling, and frame application.
@@ -17,14 +18,13 @@ final class ListRootView: UIView, UIScrollViewDelegate {
 
   let scrollView = UIScrollView()
   private let contentView = UIView()
+  private var scrollSignalSource: ScrollSignalSource?
 
   // MARK: - Callbacks
 
   var onScroll: ((CGFloat, CGFloat) -> Void)?
   var onLayoutReady: (() -> Void)?
   var onCellHeightChange: ((Int, CGFloat) -> Void)?
-  
-  
 
   // MARK: - State (AUTHORITATIVE)
 
@@ -47,8 +47,18 @@ final class ListRootView: UIView, UIScrollViewDelegate {
     scrollView.delegate = self
     scrollView.contentInsetAdjustmentBehavior = .never
 
+    scrollSignalSource =
+      DisplayLinkScrollSignalSource(scrollView: scrollView)
+
+    // 🚫 HOT PATH → NO LOGGING HERE
+    scrollSignalSource?.onFrame = { [weak self] offset, viewport, _ in
+      self?.onScroll?(offset, viewport)
+    }
+
     addSubview(scrollView)
     scrollView.addSubview(contentView)
+
+    ListDebugLog.info("ListRootView initialized")
   }
 
   required init?(coder: NSCoder) {
@@ -61,6 +71,8 @@ final class ListRootView: UIView, UIScrollViewDelegate {
     scrollAxis = axis
     scrollView.alwaysBounceVertical = axis == .vertical
     scrollView.alwaysBounceHorizontal = axis == .horizontal
+
+    ListDebugLog.info("Scroll axis set to \(axis)")
   }
 
   // MARK: - Layout
@@ -71,6 +83,9 @@ final class ListRootView: UIView, UIScrollViewDelegate {
 
     if !didLayoutOnce, bounds.width > 0, bounds.height > 0 {
       didLayoutOnce = true
+      scrollSignalSource?.start()
+
+      ListDebugLog.info("Initial layout completed — scroll signal started")
       onLayoutReady?()
     }
   }
@@ -92,7 +107,6 @@ final class ListRootView: UIView, UIScrollViewDelegate {
     for index in start...end {
       if visibleCells[index] != nil { continue }
       if prefetchedCells[index] != nil { continue }
-
       guard let cell = reusePool.dequeueIfAvailable() else { continue }
 
       cell.isHidden = true
@@ -127,13 +141,11 @@ final class ListRootView: UIView, UIScrollViewDelegate {
     end: Int,
     layout: ListLayoutEngine
   ) {
-    // 🔻 Recycle exited visible cells
-    for index in visibleCells.keys {
-      if index < start || index > end {
-        let cell = visibleCells.removeValue(forKey: index)!
-        cell.removeFromSuperview()
-        reusePool.recycle(cell)
-      }
+    // Recycle exited cells
+    for index in visibleCells.keys where index < start || index > end {
+      let cell = visibleCells.removeValue(forKey: index)!
+      cell.removeFromSuperview()
+      reusePool.recycle(cell)
     }
 
     guard start <= end else {
@@ -141,7 +153,7 @@ final class ListRootView: UIView, UIScrollViewDelegate {
       return
     }
 
-    // 🔺 Mount missing visible cells
+    // Mount new visible cells
     for index in start...end {
       if visibleCells[index] != nil { continue }
 
@@ -154,7 +166,6 @@ final class ListRootView: UIView, UIScrollViewDelegate {
         cell = reused
         cell.bind(index: index)
       } else {
-        // ✅ FINAL FIX: controlled fallback allocation
         cell = ListCellView()
         cell.bind(index: index)
       }
@@ -178,13 +189,13 @@ final class ListRootView: UIView, UIScrollViewDelegate {
 
     assertInvariants()
 
-    debugPrint(
+    // ✅ DISCRETE EVENT → SAFE TO LOG
+    ListDebugLog.debug(
       """
-      [ListRootView]
+      Mount completed
       Visible: \(visibleCells.count)
       Prefetched: \(prefetchedCells.count)
-      Pool: \(reusePool.count)
-      Mounted (derived): \(visibleCells.count + prefetchedCells.count)
+      ReusePool: \(reusePool.count)
       Visible range: \(start)–\(end)
       """
     )
@@ -207,9 +218,10 @@ final class ListRootView: UIView, UIScrollViewDelegate {
     }
   }
 
-  // MARK: - Scroll Delegate
+  // MARK: - Scroll Delegate (fallback only)
 
   func scrollViewDidScroll(_ scrollView: UIScrollView) {
+    // Delegate is fallback; CADisplayLink is primary.
     if scrollAxis == .horizontal {
       onScroll?(scrollView.contentOffset.x, scrollView.bounds.width)
     } else {
@@ -225,5 +237,10 @@ final class ListRootView: UIView, UIScrollViewDelegate {
     let prefetchedKeys = Set(prefetchedCells.keys)
     assert(visibleKeys.isDisjoint(with: prefetchedKeys))
     #endif
+  }
+
+  deinit {
+    scrollSignalSource?.stop()
+    ListDebugLog.info("ListRootView deinitialized")
   }
 }

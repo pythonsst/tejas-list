@@ -33,7 +33,12 @@ final class DisplayLinkScrollSignalSource: ScrollSignalSource {
 
     let offset = scrollView.contentOffset.y
     let viewport = scrollView.bounds.height
+    
+  #if DEBUG
+    ListDebugLog.debug("🟢 [DisplayLink] offset: \(offset)")
+  #endif
 
     onFrame?(offset, viewport, link.timestamp)
+    
   }
 }

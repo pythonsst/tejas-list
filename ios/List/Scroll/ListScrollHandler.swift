@@ -2,11 +2,14 @@ import UIKit
 import QuartzCore
 
 /// Computes visible item range from scroll position.
-/// HARD guarantees:
-/// - Window monotonicity during fast scroll
-/// - No oscillation
+///
+/// PHASE-1 GUARANTEES:
+/// - Frame-driven (DisplayLink-compatible)
+/// - No oscillation during fast scroll
 /// - No mount storms
 /// - Bounded overscan growth
+/// - Emits range ONLY on real change
+/// - ZERO logging in hot path
 final class ListScrollHandler {
 
   // MARK: - Dependencies
@@ -21,17 +24,20 @@ final class ListScrollHandler {
 
   var scrollAxis: ScrollAxis = .vertical
 
-  // MARK: - State
+  // MARK: - State (authoritative)
 
   private var lastStart: Int = -1
   private var lastEnd: Int = -1
+
+  private var lastEmittedStart: Int = -1
+  private var lastEmittedEnd: Int = -1
 
   private var currentOverscan: Int = 6
   private(set) var isFastScrolling: Bool = false
 
   private let velocityTracker = ScrollVelocityTracker()
 
-  // MARK: - Scroll handling
+  // MARK: - Scroll handling (HOT PATH)
 
   func handleScroll(
     scrollOffset: CGFloat,
@@ -51,7 +57,7 @@ final class ListScrollHandler {
     isFastScrolling = velocity > 1200
 
     // ─────────────────────────────────────
-    // 2. Target overscan (velocity driven)
+    // 2. Target overscan (velocity-driven)
     // ─────────────────────────────────────
 
     let targetOverscan: Int
@@ -66,7 +72,7 @@ final class ListScrollHandler {
       targetOverscan = 6
     }
 
-    // 🔒 Overscan convergence (NEVER explode)
+    // Overscan convergence (never explode)
     if !isFastScrolling {
       if targetOverscan < currentOverscan {
         currentOverscan = targetOverscan
@@ -75,7 +81,7 @@ final class ListScrollHandler {
       }
     }
 
-    // HARD CAP (prevents your 14k mounted bug)
+    // HARD CAP — prevents mount explosion
     currentOverscan = min(currentOverscan, 8)
     let overscan = currentOverscan
 
@@ -98,12 +104,12 @@ final class ListScrollHandler {
     let nextEnd = min(lastVisible + overscan, layout.count - 1)
 
     // ─────────────────────────────────────
-    // 4. Window stability rules (CRITICAL)
+    // 4. Window stability rules
     // ─────────────────────────────────────
 
     if lastStart != -1 {
       if isFastScrolling {
-        // 🔒 HARD FREEZE unless window fully exits
+        // Hard freeze unless window fully exits
         if nextStart >= lastStart && nextEnd <= lastEnd {
           return
         }
@@ -123,7 +129,21 @@ final class ListScrollHandler {
     lastStart = nextStart
     lastEnd = nextEnd
 
-    onVisibleRangeChange?(nextStart, nextEnd)
+    // Emit ONLY if range actually changed
+    if nextStart != lastEmittedStart || nextEnd != lastEmittedEnd {
+      lastEmittedStart = nextStart
+      lastEmittedEnd = nextEnd
+
+      onVisibleRangeChange?(nextStart, nextEnd)
+    }
+  }
+
+  // MARK: - Public read-only state
+
+  /// First visible index from the last committed window.
+  /// Used for scroll anchoring.
+  var firstVisibleIndex: Int? {
+    lastStart >= 0 ? lastStart : nil
   }
 
   // MARK: - Reset
@@ -131,9 +151,10 @@ final class ListScrollHandler {
   func reset() {
     lastStart = -1
     lastEnd = -1
+    lastEmittedStart = -1
+    lastEmittedEnd = -1
     currentOverscan = 6
     isFastScrolling = false
     velocityTracker.reset()
   }
 }
-
