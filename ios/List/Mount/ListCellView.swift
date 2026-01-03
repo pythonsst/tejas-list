@@ -1,7 +1,7 @@
 import UIKit
 
 /// Native list cell.
-/// Measures itself safely and deterministically.
+/// Deterministic measurement + reuse-safe.
 final class ListCellView: UIView {
 
   private let label = UILabel()
@@ -18,7 +18,7 @@ final class ListCellView: UIView {
   // MARK: - Measurement state
 
   private var lastMeasuredSize: CGFloat = -1
-  private var cachedMeasuredSize: CGFloat = 0
+  private var lastMeasureKey: CGFloat = -1
   private var scrollAxis: ScrollAxis = .vertical
 
   // MARK: - Init
@@ -36,15 +36,14 @@ final class ListCellView: UIView {
   }
 
   required init?(coder: NSCoder) {
-    fatalError()
+    fatalError("init(coder:) has not been implemented")
   }
 
   // MARK: - Axis
 
   func setScrollAxis(_ axis: ScrollAxis) {
     scrollAxis = axis
-    lastMeasuredSize = -1
-    setNeedsLayout()
+    invalidateMeasurement()
   }
 
   // MARK: - Layout
@@ -52,9 +51,17 @@ final class ListCellView: UIView {
   override func layoutSubviews() {
     super.layoutSubviews()
 
+    guard bounds.width > 0, bounds.height > 0 else { return }
+
     label.frame = bounds
 
-    // Width-aware measurement (critical for multiline)
+    // 🔑 Measurement key (width-sensitive for vertical lists)
+    let measureKey: CGFloat =
+      scrollAxis == .horizontal ? bounds.height : bounds.width
+
+    guard measureKey != lastMeasureKey else { return }
+    lastMeasureKey = measureKey
+
     let measured: CGFloat
     if scrollAxis == .horizontal {
       let size = label.sizeThatFits(
@@ -68,15 +75,10 @@ final class ListCellView: UIView {
       measured = size.height + 16
     }
 
-    // No change → no callback
     guard measured != lastMeasuredSize else { return }
-
-    // Reuse safety
-    guard index == boundIndex else { return }
+    guard index == boundIndex else { return } // reuse safety
 
     lastMeasuredSize = measured
-    cachedMeasuredSize = measured
-
     onSizeMeasured?(measured)
   }
 
@@ -88,10 +90,7 @@ final class ListCellView: UIView {
 
     label.text = "Row \(index)"
 
-    lastMeasuredSize = -1
-    cachedMeasuredSize = 0
-
-    setNeedsLayout()
+    invalidateMeasurement()
   }
 
   // MARK: - Reuse
@@ -101,9 +100,16 @@ final class ListCellView: UIView {
     boundIndex = -1
 
     label.text = nil
-    cachedMeasuredSize = 0
-    lastMeasuredSize = -1
-
     onSizeMeasured = nil
+
+    invalidateMeasurement()
+  }
+
+  // MARK: - Helpers
+
+  private func invalidateMeasurement() {
+    lastMeasuredSize = -1
+    lastMeasureKey = -1
+    setNeedsLayout()
   }
 }

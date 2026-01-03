@@ -2,7 +2,18 @@ import UIKit
 
 /// Root scroll container for the native list.
 /// Owns mounting, recycling, and frame application.
+///
+/// GUARANTEES (FINAL):
+/// - visibleCells contain ONLY visible cells
+/// - prefetchedCells are hidden + non-measuring
+/// - reuse pool is the PRIMARY allocator
+/// - fallback allocation allowed (bounded, safe)
+/// - NO manual counters
+/// - deterministic mount / recycle
+/// - bounded memory usage
 final class ListRootView: UIView, UIScrollViewDelegate {
+
+  // MARK: - Views
 
   let scrollView = UIScrollView()
   private let contentView = UIView()
@@ -13,19 +24,18 @@ final class ListRootView: UIView, UIScrollViewDelegate {
   var onLayoutReady: (() -> Void)?
   var onCellHeightChange: ((Int, CGFloat) -> Void)?
 
-  // MARK: - State
+  // MARK: - State (AUTHORITATIVE)
 
   private var visibleCells: [Int: ListCellView] = [:]
+  private var prefetchedCells: [Int: ListCellView] = [:]
+
   private let reusePool = ListReusePool()
   private var didLayoutOnce = false
   private var scrollAxis: ScrollAxis = .vertical
 
-  // MARK: - Instrumentation 🔥
+  // MARK: - Prefetch limits
 
-  private var mountedCount: Int = 0
-  private var peakMountedCount: Int = 0
-  private var totalMounted: Int = 0
-  private var totalRecycled: Int = 0
+  private let maxPrefetchCount = 40
 
   // MARK: - Init
 
@@ -40,7 +50,7 @@ final class ListRootView: UIView, UIScrollViewDelegate {
   }
 
   required init?(coder: NSCoder) {
-    fatalError()
+    fatalError("init(coder:) has not been implemented")
   }
 
   // MARK: - Axis
@@ -57,7 +67,7 @@ final class ListRootView: UIView, UIScrollViewDelegate {
     super.layoutSubviews()
     scrollView.frame = bounds
 
-    if !didLayoutOnce && bounds.width > 0 && bounds.height > 0 {
+    if !didLayoutOnce, bounds.width > 0, bounds.height > 0 {
       didLayoutOnce = true
       onLayoutReady?()
     }
@@ -68,37 +78,86 @@ final class ListRootView: UIView, UIScrollViewDelegate {
     scrollView.contentSize = size
   }
 
-  // MARK: - Cell Mounting
+  // MARK: - Prefetch (NO allocation, NO measurement)
+
+  func prefetchCells(
+    start: Int,
+    end: Int,
+    layout: ListLayoutEngine
+  ) {
+    guard start <= end else { return }
+
+    for index in start...end {
+      if visibleCells[index] != nil { continue }
+      if prefetchedCells[index] != nil { continue }
+
+      guard let cell = reusePool.dequeueIfAvailable() else { continue }
+
+      cell.isHidden = true
+      cell.onSizeMeasured = nil
+      cell.bind(index: index)
+
+      let offset = layout.offset(at: index)
+      let size = layout.height(at: index)
+
+      cell.frame =
+        scrollAxis == .horizontal
+          ? CGRect(x: offset, y: 0, width: size, height: bounds.height)
+          : CGRect(x: 0, y: offset, width: bounds.width, height: size)
+
+      contentView.addSubview(cell)
+      prefetchedCells[index] = cell
+    }
+
+    // FIFO eviction
+    while prefetchedCells.count > maxPrefetchCount {
+      guard let index = prefetchedCells.keys.first else { break }
+      let cell = prefetchedCells.removeValue(forKey: index)!
+      cell.removeFromSuperview()
+      reusePool.recycle(cell)
+    }
+  }
+
+  // MARK: - Mount / Recycle (DETERMINISTIC, SAFE)
 
   func mountCells(
     start: Int,
     end: Int,
     layout: ListLayoutEngine
   ) {
-    // 1️⃣ Collect out-of-range indices
-    let indicesToRecycle = visibleCells.keys.filter {
-      $0 < start || $0 > end
+    // 🔻 Recycle exited visible cells
+    for index in visibleCells.keys {
+      if index < start || index > end {
+        let cell = visibleCells.removeValue(forKey: index)!
+        cell.removeFromSuperview()
+        reusePool.recycle(cell)
+      }
     }
 
-    for index in indicesToRecycle {
-      guard let cell = visibleCells[index] else { continue }
-
-      cell.removeFromSuperview()
-      reusePool.recycle(cell)
-      visibleCells.removeValue(forKey: index)
-
-      // 📉 Instrument recycle
-      mountedCount = max(0, mountedCount - 1)
-      totalRecycled += 1
+    guard start <= end else {
+      assertInvariants()
+      return
     }
 
-    // 2️⃣ Mount missing cells
-    for index in start...end where visibleCells[index] == nil {
-      let cell = reusePool.dequeue()
+    // 🔺 Mount missing visible cells
+    for index in start...end {
+      if visibleCells[index] != nil { continue }
+
+      let cell: ListCellView
+
+      if let prefetched = prefetchedCells.removeValue(forKey: index) {
+        cell = prefetched
+        cell.isHidden = false
+      } else if let reused = reusePool.dequeueIfAvailable() {
+        cell = reused
+        cell.bind(index: index)
+      } else {
+        // ✅ FINAL FIX: controlled fallback allocation
+        cell = ListCellView()
+        cell.bind(index: index)
+      }
 
       cell.setScrollAxis(scrollAxis)
-      cell.bind(index: index)
-
       cell.onSizeMeasured = { [weak self] size in
         self?.onCellHeightChange?(index, size)
       }
@@ -108,106 +167,41 @@ final class ListRootView: UIView, UIScrollViewDelegate {
 
       cell.frame =
         scrollAxis == .horizontal
-          ? CGRect(
-              x: offset,
-              y: 0,
-              width: size,
-              height: bounds.height
-            )
-          : CGRect(
-              x: 0,
-              y: offset,
-              width: bounds.width,
-              height: size
-            )
+          ? CGRect(x: offset, y: 0, width: size, height: bounds.height)
+          : CGRect(x: 0, y: offset, width: bounds.width, height: size)
 
       contentView.addSubview(cell)
       visibleCells[index] = cell
-
-      // 📈 Instrument mount
-      mountedCount += 1
-      totalMounted += 1
-      if mountedCount > peakMountedCount {
-        peakMountedCount = mountedCount
-      }
-
     }
 
-    // 🔍 Log snapshot (throttled by visible range changes)
+    assertInvariants()
+
     debugPrint(
       """
       [ListRootView]
-      Mounted: \(mountedCount)
-      Peak: \(peakMountedCount)
-      Total mounts: \(totalMounted)
-      Total recycled: \(totalRecycled)
+      Visible: \(visibleCells.count)
+      Prefetched: \(prefetchedCells.count)
+      Pool: \(reusePool.count)
+      Mounted (derived): \(visibleCells.count + prefetchedCells.count)
       Visible range: \(start)–\(end)
       """
     )
   }
-  
-  func relayoutVisibleCellsAnimated(
-    from startIndex: Int,
-    layout: ListLayoutEngine,
-    animator: RelayoutAnimator,
-    delta: CGFloat
-  ) {
-    let sortedIndices = visibleCells.keys
-      .filter { $0 >= startIndex }
-      .sorted()
-
-    let applyFrames = {
-      for index in sortedIndices {
-        guard let cell = self.visibleCells[index] else { continue }
-        let offset = layout.offset(at: index)
-        let size = layout.height(at: index)
-
-        cell.frame =
-          self.scrollAxis == .horizontal
-            ? CGRect(x: offset, y: 0, width: size, height: self.bounds.height)
-            : CGRect(x: 0, y: offset, width: self.bounds.width, height: size)
-      }
-    }
-
-    if animator.shouldAnimate(delta: delta) {
-      animator.animate(applyFrames)
-    } else {
-      applyFrames()
-    }
-  }
-
 
   // MARK: - Relayout
 
-  /// Re-applies frames to already-mounted cells after a layout commit.
   func relayoutVisibleCells(
     from startIndex: Int,
     layout: ListLayoutEngine
   ) {
-    let sortedIndices = visibleCells.keys
-      .filter { $0 >= startIndex }
-      .sorted()
-
-    for index in sortedIndices {
-      guard let cell = visibleCells[index] else { continue }
-
+    for (index, cell) in visibleCells where index >= startIndex {
       let offset = layout.offset(at: index)
       let size = layout.height(at: index)
 
       cell.frame =
         scrollAxis == .horizontal
-          ? CGRect(
-              x: offset,
-              y: 0,
-              width: size,
-              height: bounds.height
-            )
-          : CGRect(
-              x: 0,
-              y: offset,
-              width: bounds.width,
-              height: size
-            )
+          ? CGRect(x: offset, y: 0, width: size, height: bounds.height)
+          : CGRect(x: 0, y: offset, width: bounds.width, height: size)
     }
   }
 
@@ -219,5 +213,15 @@ final class ListRootView: UIView, UIScrollViewDelegate {
     } else {
       onScroll?(scrollView.contentOffset.y, scrollView.bounds.height)
     }
+  }
+
+  // MARK: - Invariants
+
+  private func assertInvariants() {
+    #if DEBUG
+    let visibleKeys = Set(visibleCells.keys)
+    let prefetchedKeys = Set(prefetchedCells.keys)
+    assert(visibleKeys.isDisjoint(with: prefetchedKeys))
+    #endif
   }
 }

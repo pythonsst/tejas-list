@@ -2,33 +2,36 @@ import UIKit
 import QuartzCore
 
 /// Computes visible item range from scroll position.
-/// READ-ONLY over layout — never mutates layout or views.
+/// HARD guarantees:
+/// - Window monotonicity during fast scroll
+/// - No oscillation
+/// - No mount storms
+/// - Bounded overscan growth
 final class ListScrollHandler {
 
-  // MARK: - Dependencies (read-only)
+  // MARK: - Dependencies
 
   weak var layout: ListLayoutEngine?
 
   // MARK: - Output
 
-  /// Called when visible index range changes
   var onVisibleRangeChange: ((Int, Int) -> Void)?
 
   // MARK: - Configuration
 
-  /// Current scroll axis (set by coordinator)
   var scrollAxis: ScrollAxis = .vertical
 
-  // MARK: - Internal state
+  // MARK: - State
 
   private var lastStart: Int = -1
   private var lastEnd: Int = -1
-  private var currentOverscan: Int = 6
 
+  private var currentOverscan: Int = 6
+  private(set) var isFastScrolling: Bool = false
 
   private let velocityTracker = ScrollVelocityTracker()
 
-  // MARK: - Public API
+  // MARK: - Scroll handling
 
   func handleScroll(
     scrollOffset: CGFloat,
@@ -40,11 +43,17 @@ final class ListScrollHandler {
       viewportSize > 0
     else { return }
 
-    // 🔥 Velocity-aware overscan
-    let velocity = velocityTracker.velocity(
-      currentOffset: scrollOffset
-    )
-    
+    // ─────────────────────────────────────
+    // 1. Velocity classification
+    // ─────────────────────────────────────
+
+    let velocity = velocityTracker.velocity(currentOffset: scrollOffset)
+    isFastScrolling = velocity > 1200
+
+    // ─────────────────────────────────────
+    // 2. Target overscan (velocity driven)
+    // ─────────────────────────────────────
+
     let targetOverscan: Int
     switch velocity {
     case 3000...:
@@ -57,17 +66,23 @@ final class ListScrollHandler {
       targetOverscan = 6
     }
 
-    // 🔒 Hysteresis: only shrink overscan aggressively
-    if targetOverscan < currentOverscan {
-      currentOverscan = targetOverscan
-    } else if targetOverscan > currentOverscan + 1 {
-      currentOverscan += 1
+    // 🔒 Overscan convergence (NEVER explode)
+    if !isFastScrolling {
+      if targetOverscan < currentOverscan {
+        currentOverscan = targetOverscan
+      } else if targetOverscan > currentOverscan {
+        currentOverscan += 1
+      }
     }
 
+    // HARD CAP (prevents your 14k mounted bug)
+    currentOverscan = min(currentOverscan, 8)
     let overscan = currentOverscan
 
+    // ─────────────────────────────────────
+    // 3. Visible window via prefix sums
+    // ─────────────────────────────────────
 
-    // Compute visible window using prefix sums
     let firstVisible = BinarySearch.firstVisibleIndex(
       scrollOffset: scrollOffset,
       offsets: layout.offsets
@@ -79,24 +94,46 @@ final class ListScrollHandler {
       offsets: layout.offsets
     )
 
-    // Apply overscan and clamp
-    let start = max(firstVisible - overscan, 0)
-    let end = min(lastVisible + overscan, layout.count - 1)
+    let nextStart = max(firstVisible - overscan, 0)
+    let nextEnd = min(lastVisible + overscan, layout.count - 1)
 
-    // No change → do nothing
-    guard start != lastStart || end != lastEnd else { return }
+    // ─────────────────────────────────────
+    // 4. Window stability rules (CRITICAL)
+    // ─────────────────────────────────────
 
-    lastStart = start
-    lastEnd = end
+    if lastStart != -1 {
+      if isFastScrolling {
+        // 🔒 HARD FREEZE unless window fully exits
+        if nextStart >= lastStart && nextEnd <= lastEnd {
+          return
+        }
+      } else {
+        let threshold = max(1, overscan / 2)
+        if abs(nextStart - lastStart) < threshold &&
+           abs(nextEnd - lastEnd) < threshold {
+          return
+        }
+      }
+    }
 
-    onVisibleRangeChange?(start, end)
+    // ─────────────────────────────────────
+    // 5. Commit window
+    // ─────────────────────────────────────
+
+    lastStart = nextStart
+    lastEnd = nextEnd
+
+    onVisibleRangeChange?(nextStart, nextEnd)
   }
 
-  /// Must be called when layout changes (commit, rebuild)
+  // MARK: - Reset
+
   func reset() {
     lastStart = -1
     lastEnd = -1
-    currentOverscan = 6 
+    currentOverscan = 6
+    isFastScrolling = false
     velocityTracker.reset()
   }
 }
+

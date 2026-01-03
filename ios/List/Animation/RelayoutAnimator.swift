@@ -1,38 +1,33 @@
 import UIKit
 
-/// Handles safe, bounded relayout animations.
 final class RelayoutAnimator {
 
-  struct Config {
-    let duration: TimeInterval
-    let maxAnimatedDelta: CGFloat
+  private let duration: TimeInterval = 0.18
+  private let maxAnimatedDelta: CGFloat = 60
+
+  func shouldAnimate(
+    delta: CGFloat,
+    isScrollingFast: Bool
+  ) -> Bool {
+    guard !isScrollingFast else { return false }
+    return delta > 0 && delta <= maxAnimatedDelta
   }
 
-  private let config: Config
-
-  init(
-    duration: TimeInterval = 0.18,
-    maxAnimatedDelta: CGFloat = 120
-  ) {
-    self.config = Config(
-      duration: duration,
-      maxAnimatedDelta: maxAnimatedDelta
-    )
-  }
-
-  /// Returns true if the change is safe to animate.
-  func shouldAnimate(delta: CGFloat) -> Bool {
-    abs(delta) <= config.maxAnimatedDelta
-  }
-
-  func animate(
-    _ animations: @escaping () -> Void
-  ) {
+  func animate(_ updates: @escaping () -> Void) {
     UIView.animate(
-      withDuration: config.duration,
+      withDuration: duration,
       delay: 0,
-      options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction],
-      animations: animations,
+      options: [
+        .curveEaseOut,
+        .beginFromCurrentState,
+        .allowUserInteraction
+      ],
+      animations: {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        updates()
+        CATransaction.commit()
+      },
       completion: nil
     )
   }

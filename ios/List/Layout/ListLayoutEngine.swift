@@ -1,26 +1,35 @@
 import UIKit
 
 /// 1-D prefix-sum layout engine.
-/// Offsets are rebuilt atomically only via commit().
+/// HARD guarantees:
+/// - Offsets are stable before first dirty index
+/// - Commits are incremental (O(n - dirtyIndex))
+/// - Atomic visibility correctness
 final class ListLayoutEngine {
+
+  // MARK: - Storage
 
   private(set) var heights: [CGFloat] = []
   private(set) var offsets: [CGFloat] = []
   private(set) var totalHeight: CGFloat = 0
 
+  // MARK: - Config
+
   var itemCount: Int = 0
   var estimatedItemHeight: CGFloat = 0
 
-  private var isDirty = false
+  // MARK: - Dirty tracking
 
-  // MARK: - Initial build
+  private var firstDirtyIndex: Int? = nil
+
+  // MARK: - Build (cold start only)
 
   func build() {
     guard itemCount > 0 else {
       heights = []
       offsets = []
       totalHeight = 0
-      isDirty = false
+      firstDirtyIndex = nil
       return
     }
 
@@ -34,8 +43,10 @@ final class ListLayoutEngine {
     }
 
     totalHeight = running
-    isDirty = false
+    firstDirtyIndex = nil
   }
+
+  // MARK: - Accessors
 
   var count: Int { heights.count }
 
@@ -52,22 +63,34 @@ final class ListLayoutEngine {
   func markHeightDirty(at index: Int, height: CGFloat) {
     guard index >= 0, index < heights.count else { return }
     guard heights[index] != height else { return }
+
     heights[index] = height
-    isDirty = true
+
+    if let existing = firstDirtyIndex {
+      firstDirtyIndex = min(existing, index)
+    } else {
+      firstDirtyIndex = index
+    }
   }
 
-  // MARK: - Atomic commit
+  // MARK: - Incremental commit
 
   func commit() {
-    guard isDirty else { return }
+    guard let start = firstDirtyIndex else { return }
 
-    var running: CGFloat = 0
-    for i in 0..<heights.count {
+    let baseOffset =
+      start == 0
+        ? CGFloat(0)
+        : offsets[start]
+
+    var running = baseOffset
+
+    for i in start..<heights.count {
       offsets[i] = running
       running += heights[i]
     }
 
     totalHeight = running
-    isDirty = false
+    firstDirtyIndex = nil
   }
 }
