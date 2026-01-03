@@ -103,8 +103,23 @@ final class ListScrollHandler {
       offsets: layout.offsets
     )
 
-    let nextStart = max(firstVisible - overscan, 0)
-    let nextEnd = min(lastVisible + overscan, layout.count - 1)
+    let prediction = ScrollRangePredictor.predictOverscan(
+      velocity: signedVelocity,
+      viewportSize: viewportSize,
+      itemCount: layout.count,
+      baseOverscan: overscan
+    )
+
+    let nextStart = max(
+      firstVisible - overscan - prediction.leading,
+      0
+    )
+
+    let nextEnd = min(
+      lastVisible + overscan + prediction.trailing,
+      layout.count - 1
+    )
+
 
     // ─────────────────────────────────────
     // 4. Window stability rules
