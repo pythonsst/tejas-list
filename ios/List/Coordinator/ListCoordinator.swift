@@ -38,6 +38,7 @@ final class ListCoordinator {
     // Visible range updates (already deduped in ScrollHandler)
     scrollHandler.onVisibleRangeChange = { [weak self] start, end in
       guard let self else { return }
+      ListDebugLog.debug("Visible range committed: \(start)–\(end)")
 
       ListInvariants.assertRange(
         start: start,
@@ -75,6 +76,14 @@ final class ListCoordinator {
     // Batched mutation — ONLY mutation point
     measurementBatcher.onFlush = { [weak self] batch in
       guard let self, !batch.isEmpty else { return }
+      self.scrollHandler.handleScroll(
+          scrollOffset: self.scrollAxis == .horizontal
+            ? self.rootView.scrollView.contentOffset.x
+            : self.rootView.scrollView.contentOffset.y,
+          viewportSize: self.scrollAxis == .horizontal
+            ? self.rootView.bounds.width
+            : self.rootView.bounds.height
+        )
 
       // 🔒 Hard freeze during fast scroll
       if self.scrollHandler.isFastScrolling {
@@ -212,9 +221,17 @@ final class ListCoordinator {
       rootView.bounds.width > 0,
       rootView.bounds.height > 0
     else { return }
+    
+    ListDebugLog.info(
+       "Building layout (items=\(layoutEngine.itemCount), estimatedHeight=\(layoutEngine.estimatedItemHeight))"
+     )
 
     needsLayoutBuild = false
     layoutEngine.build()
+    
+    ListDebugLog.info(
+       "Layout built (totalSize=\(layoutEngine.totalHeight))"
+     )
 
     rootView.setContentSize(
       scrollAxis == .horizontal

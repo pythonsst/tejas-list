@@ -12,8 +12,8 @@ const App: React.FC = () => {
    * Native calls it only when visible range changes.
    */
   const handleVisibleRangeChange = React.useCallback(
-    (start: number, end: number): void => {
-      console.log('visible range:', start, end);
+    (_start: number, _end: number): void => {
+      // console.log('visible range:', start, end);
     },
     []
   );

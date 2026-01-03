@@ -1,96 +1,99 @@
 import UIKit
 
-/// 1-D prefix-sum layout engine.
-/// HARD guarantees:
-/// - Offsets are stable before first dirty index
-/// - Commits are incremental (O(n - dirtyIndex))
-/// - Atomic visibility correctness
+/// Computes item offsets using prefix sums.
+/// Owns height state and layout invalidation.
+///
+/// GUARANTEES:
+/// - Offsets are monotonic
+/// - commit() is atomic
+/// - Dirty heights are applied deterministically
+/// - No UIKit calls
 final class ListLayoutEngine {
 
-  // MARK: - Storage
+  // MARK: - Public State
+
+  var itemCount: Int = 0
+  var estimatedItemHeight: CGFloat = 0
 
   private(set) var heights: [CGFloat] = []
   private(set) var offsets: [CGFloat] = []
   private(set) var totalHeight: CGFloat = 0
 
-  // MARK: - Config
+  // MARK: - Dirty State
 
-  var itemCount: Int = 0
-  var estimatedItemHeight: CGFloat = 0
+  private var dirtyHeights: [Int: CGFloat] = [:]
+  private var needsRebuild: Bool = true
 
-  // MARK: - Dirty tracking
-
-  private var firstDirtyIndex: Int? = nil
-
-  // MARK: - Build (cold start only)
+  // MARK: - Build (cold path)
 
   func build() {
-    guard itemCount > 0 else {
-      heights = []
-      offsets = []
-      totalHeight = 0
-      firstDirtyIndex = nil
-      return
-    }
+    guard itemCount > 0, estimatedItemHeight > 0 else { return }
 
-    heights = Array(repeating: estimatedItemHeight, count: itemCount)
-    offsets = Array(repeating: 0, count: itemCount)
+    heights = Array(
+      repeating: estimatedItemHeight,
+      count: itemCount
+    )
 
-    var running: CGFloat = 0
-    for i in 0..<itemCount {
-      offsets[i] = running
-      running += heights[i]
-    }
-
-    totalHeight = running
-    firstDirtyIndex = nil
+    rebuildOffsets()
+    needsRebuild = false
   }
 
-  // MARK: - Accessors
+  // MARK: - Measurement updates (hot, NO mutation)
 
-  var count: Int { heights.count }
+  func markHeightDirty(
+    at index: Int,
+    height: CGFloat
+  ) {
+    guard index >= 0, index < heights.count else { return }
+    dirtyHeights[index] = height
+  }
+
+  // MARK: - Commit (THE ONLY MUTATION POINT)
+
+  /// Applies dirty heights and recomputes offsets.
+  /// This MUST be atomic.
+  func commit() {
+    guard !dirtyHeights.isEmpty else { return }
+
+    applyDirtyHeights()
+    rebuildOffsets()
+
+    dirtyHeights.removeAll()
+  }
+
+  // MARK: - Queries (HOT PATH SAFE)
 
   func offset(at index: Int) -> CGFloat {
-    offsets[index]
+    guard index >= 0, index < offsets.count else { return 0 }
+    return offsets[index]
   }
 
   func height(at index: Int) -> CGFloat {
-    heights[index]
+    guard index >= 0, index < heights.count else { return 0 }
+    return heights[index]
   }
 
-  // MARK: - Height invalidation
+  var count: Int {
+    heights.count
+  }
 
-  func markHeightDirty(at index: Int, height: CGFloat) {
-    guard index >= 0, index < heights.count else { return }
-    guard heights[index] != height else { return }
+  // MARK: - Internal Helpers (PRIVATE)
 
-    heights[index] = height
-
-    if let existing = firstDirtyIndex {
-      firstDirtyIndex = min(existing, index)
-    } else {
-      firstDirtyIndex = index
+  private func applyDirtyHeights() {
+    for (index, height) in dirtyHeights {
+      heights[index] = height
     }
   }
 
-  // MARK: - Incremental commit
+  private func rebuildOffsets() {
+    offsets = Array(repeating: 0, count: heights.count)
 
-  func commit() {
-    guard let start = firstDirtyIndex else { return }
-
-    let baseOffset =
-      start == 0
-        ? CGFloat(0)
-        : offsets[start]
-
-    var running = baseOffset
-
-    for i in start..<heights.count {
+    var running: CGFloat = 0
+    for i in 0..<heights.count {
       offsets[i] = running
       running += heights[i]
     }
 
     totalHeight = running
-    firstDirtyIndex = nil
   }
 }

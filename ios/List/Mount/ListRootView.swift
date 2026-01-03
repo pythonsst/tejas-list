@@ -4,12 +4,11 @@ import QuartzCore
 /// Root scroll container for the native list.
 /// Owns mounting, recycling, and frame application.
 ///
-/// GUARANTEES (FINAL):
+/// GUARANTEES:
 /// - visibleCells contain ONLY visible cells
 /// - prefetchedCells are hidden + non-measuring
 /// - reuse pool is the PRIMARY allocator
 /// - fallback allocation allowed (bounded, safe)
-/// - NO manual counters
 /// - deterministic mount / recycle
 /// - bounded memory usage
 final class ListRootView: UIView, UIScrollViewDelegate {
@@ -50,7 +49,7 @@ final class ListRootView: UIView, UIScrollViewDelegate {
     scrollSignalSource =
       DisplayLinkScrollSignalSource(scrollView: scrollView)
 
-    // 🚫 HOT PATH → NO LOGGING HERE
+    // 🚫 HOT PATH → NO LOGGING
     scrollSignalSource?.onFrame = { [weak self] offset, viewport, _ in
       self?.onScroll?(offset, viewport)
     }
@@ -84,9 +83,9 @@ final class ListRootView: UIView, UIScrollViewDelegate {
     if !didLayoutOnce, bounds.width > 0, bounds.height > 0 {
       didLayoutOnce = true
       scrollSignalSource?.start()
-
-      ListDebugLog.info("Initial layout completed — scroll signal started")
       onLayoutReady?()
+
+      ListDebugLog.info("Initial layout completed")
     }
   }
 
@@ -132,9 +131,15 @@ final class ListRootView: UIView, UIScrollViewDelegate {
       cell.removeFromSuperview()
       reusePool.recycle(cell)
     }
+
+    // 🔒 HARD SAFETY CHECK
+    ListInvariants.assertMaxMounted(
+      visible: visibleCells.count,
+      prefetched: prefetchedCells.count
+    )
   }
 
-  // MARK: - Mount / Recycle (DETERMINISTIC, SAFE)
+  // MARK: - Mount / Recycle
 
   func mountCells(
     start: Int,
@@ -153,7 +158,7 @@ final class ListRootView: UIView, UIScrollViewDelegate {
       return
     }
 
-    // Mount new visible cells
+    // Mount visible cells
     for index in start...end {
       if visibleCells[index] != nil { continue }
 
@@ -189,15 +194,15 @@ final class ListRootView: UIView, UIScrollViewDelegate {
 
     assertInvariants()
 
-    // ✅ DISCRETE EVENT → SAFE TO LOG
+    // 🔒 HARD SAFETY CHECK
+    ListInvariants.assertMaxMounted(
+      visible: visibleCells.count,
+      prefetched: prefetchedCells.count
+    )
+
+    // Safe, discrete log
     ListDebugLog.debug(
-      """
-      Mount completed
-      Visible: \(visibleCells.count)
-      Prefetched: \(prefetchedCells.count)
-      ReusePool: \(reusePool.count)
-      Visible range: \(start)–\(end)
-      """
+      "Mount complete | visible=\(visibleCells.count) prefetched=\(prefetchedCells.count)"
     )
   }
 
@@ -218,10 +223,9 @@ final class ListRootView: UIView, UIScrollViewDelegate {
     }
   }
 
-  // MARK: - Scroll Delegate (fallback only)
+  // MARK: - Scroll Delegate (fallback)
 
   func scrollViewDidScroll(_ scrollView: UIScrollView) {
-    // Delegate is fallback; CADisplayLink is primary.
     if scrollAxis == .horizontal {
       onScroll?(scrollView.contentOffset.x, scrollView.bounds.width)
     } else {
