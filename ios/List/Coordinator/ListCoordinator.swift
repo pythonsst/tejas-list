@@ -13,6 +13,9 @@ final class ListCoordinator {
   private let scrollHandler = ListScrollHandler()
   private let measurementBatcher = MeasurementBatcher()
   private let runloopBatcher = RunloopBatcher()
+  // Phase-2: First-frame bootstrap
+  private let initialBootstrapper = InitialWindowBootstrapper()
+
 
   // MARK: - State
 
@@ -186,6 +189,7 @@ final class ListCoordinator {
 
   func reload() {
     scrollHandler.reset()
+    initialBootstrapper.reset()
     rebuildLayoutAndMount()
   }
 
@@ -244,8 +248,21 @@ final class ListCoordinator {
             height: layoutEngine.totalHeight
           )
     )
+    // ✅ Phase-2: Bootstrap first visible window (no measurement)
+    if let window = initialBootstrapper.bootstrapIfNeeded(
+      itemCount: layoutEngine.count,
+      estimatedItemHeight: layoutEngine.estimatedItemHeight,
+      viewportSize: scrollAxis == .horizontal
+        ? rootView.bounds.width
+        : rootView.bounds.height
+    ) {
+      rootView.mountCells(
+        start: window.start,
+        end: window.end,
+        layout: layoutEngine
+      )
+    }
 
-    scrollHandler.reset()
     scrollHandler.handleScroll(
       scrollOffset: scrollAxis == .horizontal
         ? rootView.scrollView.contentOffset.x
