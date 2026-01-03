@@ -30,12 +30,12 @@ final class ListCoordinator {
       self?.rebuildLayoutAndMount()
     }
 
-    // Frame-synchronous scroll
+    // Frame-synchronous scroll input
     rootView.onScroll = { [weak self] offset, viewport in
       self?.handleScroll(offset: offset, viewport: viewport)
     }
 
-    // Visible range updates
+    // Visible range updates (already deduped in ScrollHandler)
     scrollHandler.onVisibleRangeChange = { [weak self] start, end in
       guard let self else { return }
 
@@ -47,17 +47,17 @@ final class ListCoordinator {
 
       let prefetchOverscan = 6
 
-      // 1. Prefetch (bounded, non-visible)
       let prefetchStart = max(0, start - prefetchOverscan)
       let prefetchEnd = min(self.layoutEngine.count - 1, end + prefetchOverscan)
 
+      // Prefetch first (non-visible)
       self.rootView.prefetchCells(
         start: prefetchStart,
         end: prefetchEnd,
         layout: self.layoutEngine
       )
 
-      // 2. Mount visible
+      // Mount visible range
       self.rootView.mountCells(
         start: start,
         end: end,
@@ -67,16 +67,16 @@ final class ListCoordinator {
       self.onVisibleRangeChange?(start, end)
     }
 
-    // Height measurement (record only)
+    // Height measurement (record only, no mutation)
     rootView.onCellHeightChange = { [weak self] index, height in
       self?.measurementBatcher.record(index: index, height: height)
     }
 
-    // Batched mutation (ONLY mutation point)
+    // Batched mutation — ONLY mutation point
     measurementBatcher.onFlush = { [weak self] batch in
       guard let self, !batch.isEmpty else { return }
 
-      // 🔒 Freeze during fast scroll
+      // 🔒 Hard freeze during fast scroll
       if self.scrollHandler.isFastScrolling {
         return
       }
@@ -87,7 +87,7 @@ final class ListCoordinator {
       guard !self.isApplyingMeasurement else { return }
       self.isApplyingMeasurement = true
 
-      // 🔑 Anchor to FIRST VISIBLE INDEX (CRITICAL FIX)
+      // Anchor to first visible index
       let anchorIndex =
         self.scrollHandler.firstVisibleIndex
           ?? batch.keys.min()
@@ -95,8 +95,8 @@ final class ListCoordinator {
 
       let oldAnchorOffset = self.layoutEngine.offset(at: anchorIndex)
 
-      // Apply height changes
-      batch.forEach { index, height in
+      // Apply height updates
+      for (index, height) in batch {
         self.layoutEngine.markHeightDirty(at: index, height: height)
       }
 
@@ -133,8 +133,10 @@ final class ListCoordinator {
         layout: self.layoutEngine
       )
 
-      // 🔒 Re-evaluate window ONCE per frame
-      self.runloopBatcher.schedule {
+      // Re-evaluate scroll window ONCE per runloop
+      self.runloopBatcher.schedule { [weak self] in
+        guard let self else { return }
+
         self.scrollHandler.handleScroll(
           scrollOffset: self.scrollAxis == .horizontal
             ? self.rootView.scrollView.contentOffset.x

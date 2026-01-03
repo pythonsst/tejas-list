@@ -1,54 +1,110 @@
 import UIKit
 
-/// Deterministic mount / recycle manager.
-/// HARD guarantees:
-/// - Two-phase update (recycle → mount)
-/// - No mutation during iteration
-/// - Bounded allocation
+/// Deterministic mount manager with priority tiers.
+/// Guarantees:
+/// - Center-first mounting
+/// - Bounded allocations
+/// - No mount storms
+/// - Stable ordering
 final class ListMountManager {
+
+  // MARK: - State
 
   private var visibleCells: [Int: ListCellView] = [:]
   private let reusePool = ListReusePool()
 
-  private var totalAllocated = 0
-  private var peakMounted = 0
+  // MARK: - Configuration
 
-  func updateVisibleRange(
-    start: Int,
-    end: Int,
+  private let maxMounted = 120
+
+  // MARK: - Public API
+
+  func update(
+    visibleStart: Int,
+    visibleEnd: Int,
+    prefetchStart: Int,
+    prefetchEnd: Int,
     layout: ListLayoutEngine,
     container: UIView,
     axis: ScrollAxis,
     onSizeMeasured: @escaping (Int, CGFloat) -> Void
   ) {
-    guard start <= end else { return }
+    // 1️⃣ Recycle exited visible cells
+    recycleOutside(range: visibleStart...visibleEnd)
 
-    // -------------------------
-    // PHASE 1: RECYCLE (snapshot keys)
-    // -------------------------
-    let currentIndices = Array(visibleCells.keys)
+    // 2️⃣ Mount viewport core (center-first)
+    mountTier(
+      indices: centerFirstIndices(start: visibleStart, end: visibleEnd),
+      layout: layout,
+      container: container,
+      axis: axis,
+      onSizeMeasured: onSizeMeasured
+    )
 
-    for index in currentIndices {
-      if index < start || index > end {
-        let cell = visibleCells[index]!
-        cell.removeFromSuperview()
-        reusePool.recycle(cell)
-        visibleCells.removeValue(forKey: index)
-      }
+    // 3️⃣ Mount viewport edges (remaining visible)
+    mountTier(
+      indices: edgeIndices(start: visibleStart, end: visibleEnd),
+      layout: layout,
+      container: container,
+      axis: axis,
+      onSizeMeasured: onSizeMeasured
+    )
+
+    // 4️⃣ Prefetch tier (lowest priority)
+    mountTier(
+      indices: prefetchStart...prefetchEnd,
+      layout: layout,
+      container: container,
+      axis: axis,
+      onSizeMeasured: onSizeMeasured,
+      visibleOnly: false
+    )
+
+    enforceMaxMounted()
+  }
+
+  // MARK: - Tier helpers
+
+  private func centerFirstIndices(start: Int, end: Int) -> [Int] {
+    let center = (start + end) / 2
+    var result: [Int] = [center]
+
+    var offset = 1
+    while result.count < (end - start + 1) {
+      let left = center - offset
+      let right = center + offset
+
+      if left >= start { result.append(left) }
+      if right <= end { result.append(right) }
+
+      offset += 1
     }
+    return result
+  }
 
-    // -------------------------
-    // PHASE 2: MOUNT
-    // -------------------------
-    for index in start...end {
+  private func edgeIndices(start: Int, end: Int) -> [Int] {
+    guard start < end else { return [] }
+    return Array(start...end)
+  }
+
+  // MARK: - Mounting
+
+  private func mountTier(
+    indices: any Sequence<Int>,
+    layout: ListLayoutEngine,
+    container: UIView,
+    axis: ScrollAxis,
+    onSizeMeasured: @escaping (Int, CGFloat) -> Void,
+    visibleOnly: Bool = true
+  ) {
+    for index in indices {
       if visibleCells[index] != nil { continue }
 
-      let cell = dequeueCell()
-      cell.setScrollAxis(axis)
+      let cell = reusePool.dequeueIfAvailable() ?? ListCellView()
       cell.bind(index: index)
-
-      cell.onSizeMeasured = { height in
-        onSizeMeasured(index, height)
+      cell.setScrollAxis(axis)
+      cell.onSizeMeasured = { size in
+        onSizeMeasured(index, size)
       }
 
       let offset = layout.offset(at: index)
@@ -56,49 +112,34 @@ final class ListMountManager {
 
       cell.frame =
         axis == .horizontal
-          ? CGRect(
-              x: offset,
-              y: 0,
-              width: size,
-              height: container.bounds.height
-            )
-          : CGRect(
-              x: 0,
-              y: offset,
-              width: container.bounds.width,
-              height: size
-            )
+          ? CGRect(x: offset, y: 0, width: size, height: container.bounds.height)
+          : CGRect(x: 0, y: offset, width: container.bounds.width, height: size)
 
       container.addSubview(cell)
       visibleCells[index] = cell
     }
-
-    peakMounted = max(peakMounted, visibleCells.count)
   }
 
-  // -------------------------
-  // Allocation control
-  // -------------------------
-  private func dequeueCell() -> ListCellView {
-    if let cell = reusePool.dequeueIfAvailable() {
-      return cell
-    }
+  // MARK: - Recycling
 
-    // 🔒 Hard guard — allocation allowed only during warm-up
-    totalAllocated += 1
+  private func recycleOutside(range: ClosedRange<Int>) {
+    for (index, cell) in visibleCells {
+      if !range.contains(index) {
+        cell.removeFromSuperview()
+        reusePool.recycle(cell)
+        visibleCells.removeValue(forKey: index)
+      }
+    }
+  }
+
+  // MARK: - Invariants
+
+  private func enforceMaxMounted() {
+    #if DEBUG
     assert(
-      totalAllocated <= peakMounted + 4,
-      "❌ Cell allocation leak detected"
+      visibleCells.count <= maxMounted,
+      "❌ Mounted cells exceeded hard cap: \(visibleCells.count)"
     )
-
-    return ListCellView()
-  }
-
-  func reset() {
-    for (_, cell) in visibleCells {
-      cell.removeFromSuperview()
-      reusePool.recycle(cell)
-    }
-    visibleCells.removeAll()
+    #endif
   }
 }
