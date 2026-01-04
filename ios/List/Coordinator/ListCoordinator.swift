@@ -90,6 +90,8 @@ final class ListCoordinator {
             ? self.rootView.bounds.width
             : self.rootView.bounds.height
         )
+      self.rootView.isFastScrolling = self.scrollHandler.isFastScrolling
+
 
       // 🔒 During fast scroll: record dirty range only
       if self.scrollHandler.isFastScrolling {
@@ -163,6 +165,7 @@ final class ListCoordinator {
             ? self.rootView.bounds.width
             : self.rootView.bounds.height
         )
+        self.rootView.isFastScrolling = self.scrollHandler.isFastScrolling
         
         // ✅ Apply deferred relayout once scrolling settles
         if !self.scrollHandler.isFastScrolling,
@@ -192,6 +195,8 @@ final class ListCoordinator {
       scrollOffset: offset,
       viewportSize: viewport
     )
+    // 🔑 Phase-2: propagate fast-scroll state
+      rootView.isFastScrolling = scrollHandler.isFastScrolling
   }
 
   // MARK: - Public API
@@ -290,6 +295,7 @@ final class ListCoordinator {
         ? rootView.bounds.width
         : rootView.bounds.height
     )
+    rootView.isFastScrolling = scrollHandler.isFastScrolling
 
 
   }
