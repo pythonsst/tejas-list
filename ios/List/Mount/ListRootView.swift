@@ -1,6 +1,20 @@
 import UIKit
 import QuartzCore
 
+/// Root scroll container for the list.
+///
+/// RESPONSIBILITIES:
+/// - Owns UIScrollView + contentView
+/// - Mounts / recycles visible cells
+/// - Manages prefetch pool
+/// - Applies snapshot-based fast-scroll masking
+///
+/// HARD GUARANTEES:
+/// - visibleCells contains ONLY real cells
+/// - prefetchedCells contains ONLY hidden, non-measuring cells
+/// - snapshot views are never mixed with real cells
+/// - reusePool is the primary allocator
+/// - deterministic mount / recycle
 final class ListRootView: UIView, UIScrollViewDelegate {
 
   // MARK: - Views
@@ -9,7 +23,8 @@ final class ListRootView: UIView, UIScrollViewDelegate {
   private let contentView = UIView()
   private var scrollSignalSource: ScrollSignalSource?
 
-  // Phase-2: snapshot cache
+  // MARK: - Phase-2: Snapshot cache
+
   private let snapshotCache = CellSnapshotCache()
 
   // MARK: - Callbacks
@@ -27,10 +42,12 @@ final class ListRootView: UIView, UIScrollViewDelegate {
   private var didLayoutOnce = false
   private var scrollAxis: ScrollAxis = .vertical
 
-  /// 🔑 Phase-2: driven by coordinator
+  /// Driven by coordinator
   var isFastScrolling: Bool = false {
     didSet {
+      // Transition: fast → normal
       if oldValue == true && isFastScrolling == false {
+        clearSnapshots()
         snapshotCache.reset()
       }
     }
@@ -49,6 +66,7 @@ final class ListRootView: UIView, UIScrollViewDelegate {
     scrollSignalSource =
       DisplayLinkScrollSignalSource(scrollView: scrollView)
 
+    // Frame-synchronous scroll signal
     scrollSignalSource?.onFrame = { [weak self] offset, viewport, _ in
       self?.onScroll?(offset, viewport)
     }
@@ -87,9 +105,13 @@ final class ListRootView: UIView, UIScrollViewDelegate {
     scrollView.contentSize = size
   }
 
-  // MARK: - Prefetch
+  // MARK: - Prefetch (NO measurement)
 
-  func prefetchCells(start: Int, end: Int, layout: ListLayoutEngine) {
+  func prefetchCells(
+    start: Int,
+    end: Int,
+    layout: ListLayoutEngine
+  ) {
     guard start <= end else { return }
 
     for index in start...end {
@@ -113,6 +135,7 @@ final class ListRootView: UIView, UIScrollViewDelegate {
       prefetchedCells[index] = cell
     }
 
+    // FIFO eviction
     while prefetchedCells.count > maxPrefetchCount {
       let (index, cell) = prefetchedCells.first!
       prefetchedCells.removeValue(forKey: index)
@@ -121,9 +144,19 @@ final class ListRootView: UIView, UIScrollViewDelegate {
     }
   }
 
+  // MARK: - Snapshot cleanup
+
+  private func clearSnapshots() {
+    snapshotCache.removeAllSnapshots(from: contentView)
+  }
+
   // MARK: - Mount / Recycle (Snapshot-aware)
 
-  func mountCells(start: Int, end: Int, layout: ListLayoutEngine) {
+  func mountCells(
+    start: Int,
+    end: Int,
+    layout: ListLayoutEngine
+  ) {
     // Recycle exited cells
     for index in visibleCells.keys where index < start || index > end {
       let cell = visibleCells.removeValue(forKey: index)!
@@ -136,14 +169,26 @@ final class ListRootView: UIView, UIScrollViewDelegate {
       reusePool.recycle(cell)
     }
 
-    guard start <= end else { return }
+    guard start <= end else {
+      assertInvariants()
+      return
+    }
 
     for index in start...end {
       if visibleCells[index] != nil { continue }
 
-      // 📸 Snapshot wins during fast scroll
+      // Snapshot takes precedence during fast scroll
       if isFastScrolling,
          let snapshot = snapshotCache.snapshotView(for: index) {
+
+        let offset = layout.offset(at: index)
+        let size = layout.height(at: index)
+
+        snapshot.frame =
+          scrollAxis == .horizontal
+            ? CGRect(x: offset, y: 0, width: size, height: bounds.height)
+            : CGRect(x: 0, y: offset, width: bounds.width, height: size)
+
         contentView.addSubview(snapshot)
         continue
       }
@@ -174,14 +219,25 @@ final class ListRootView: UIView, UIScrollViewDelegate {
           ? CGRect(x: offset, y: 0, width: size, height: bounds.height)
           : CGRect(x: 0, y: offset, width: bounds.width, height: size)
 
-      contentView.addSubview(cell)
+      // 🔑 Ensure cell is ABOVE snapshot if one exists
+      if let snapshot = snapshotCache.snapshotView(for: index) {
+        contentView.insertSubview(cell, aboveSubview: snapshot)
+      } else {
+        contentView.addSubview(cell)
+      }
+
       visibleCells[index] = cell
     }
+
+    assertInvariants()
   }
 
   // MARK: - Relayout
 
-  func relayoutVisibleCells(from startIndex: Int, layout: ListLayoutEngine) {
+  func relayoutVisibleCells(
+    from startIndex: Int,
+    layout: ListLayoutEngine
+  ) {
     for (index, cell) in visibleCells where index >= startIndex {
       let offset = layout.offset(at: index)
       let size = layout.height(at: index)
@@ -193,7 +249,7 @@ final class ListRootView: UIView, UIScrollViewDelegate {
     }
   }
 
-  // MARK: - Scroll Delegate (fallback)
+  // MARK: - Scroll delegate fallback
 
   func scrollViewDidScroll(_ scrollView: UIScrollView) {
     if scrollAxis == .horizontal {
@@ -201,6 +257,14 @@ final class ListRootView: UIView, UIScrollViewDelegate {
     } else {
       onScroll?(scrollView.contentOffset.y, scrollView.bounds.height)
     }
+  }
+
+  // MARK: - Invariants
+
+  private func assertInvariants() {
+    #if DEBUG
+    assert(Set(visibleCells.keys).isDisjoint(with: prefetchedCells.keys))
+    #endif
   }
 
   deinit {

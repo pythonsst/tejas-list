@@ -33,6 +33,15 @@ final class ListScrollHandler {
   }
 
   // MARK: - State
+  
+  
+  private enum ScrollFreezeState {
+    case active
+    case frozen
+  }
+
+  private var freezeState: ScrollFreezeState = .active
+
 
   private var lastStart: Int = -1
   private var lastEnd: Int = -1
@@ -69,10 +78,22 @@ final class ListScrollHandler {
     let rawFastScroll = absVelocity > 1200
 
     // Policy-controlled freeze decision
-    isFastScrolling = FastScrollRules.shouldFreeze(
+    let shouldFreeze = FastScrollRules.shouldFreeze(
       isFastScrolling: rawFastScroll,
       policy: fastScrollPolicy
     )
+
+    let newState: ScrollFreezeState = shouldFreeze ? .frozen : .active
+
+    if newState != freezeState {
+      freezeState = newState
+      ListDebugLog.info(
+        "Scroll freeze → \(freezeState) (velocity=\(Int(absVelocity)))"
+      )
+    }
+
+    isFastScrolling = shouldFreeze
+
 
     // 2. Overscan control
     let targetOverscan: Int
@@ -166,6 +187,7 @@ final class ListScrollHandler {
     currentOverscan = 6
     isFastScrolling = false
     lastVelocity = 0
+    freezeState = .active   // ✅ ADD THIS
     velocityTracker.reset()
   }
 }
