@@ -15,6 +15,9 @@ final class ListCoordinator {
   private let runloopBatcher = RunloopBatcher()
   // Phase-2: First-frame bootstrap
   private let initialBootstrapper = InitialWindowBootstrapper()
+  // Phase-2: Deferred relayout
+  private let deferredRelayoutQueue = DeferredRelayoutQueue()
+
 
 
   // MARK: - State
@@ -88,8 +91,10 @@ final class ListCoordinator {
             : self.rootView.bounds.height
         )
 
-      // 🔒 Hard freeze during fast scroll
+      // 🔒 During fast scroll: record dirty range only
       if self.scrollHandler.isFastScrolling {
+        let earliestIndex = batch.keys.min() ?? 0
+        self.deferredRelayoutQueue.recordDirty(from: earliestIndex)
         return
       }
 
@@ -98,6 +103,7 @@ final class ListCoordinator {
       // Prevent re-entrancy
       guard !self.isApplyingMeasurement else { return }
       self.isApplyingMeasurement = true
+      defer { self.isApplyingMeasurement = false }
 
       // Anchor to first visible index
       let anchorIndex =
@@ -157,9 +163,20 @@ final class ListCoordinator {
             ? self.rootView.bounds.width
             : self.rootView.bounds.height
         )
-      }
+        
+        // ✅ Apply deferred relayout once scrolling settles
+        if !self.scrollHandler.isFastScrolling,
+           let startIndex = self.deferredRelayoutQueue.consume() {
 
-      self.isApplyingMeasurement = false
+          self.layoutEngine.commit()
+
+          self.rootView.relayoutVisibleCells(
+            from: startIndex,
+            layout: self.layoutEngine
+          )
+        }
+
+      }
     }
   }
 
@@ -190,6 +207,7 @@ final class ListCoordinator {
   func reload() {
     scrollHandler.reset()
     initialBootstrapper.reset()
+    deferredRelayoutQueue.reset()   // ✅ ADD
     rebuildLayoutAndMount()
   }
 
@@ -263,6 +281,7 @@ final class ListCoordinator {
       )
     }
 
+    // Establish initial visible range state
     scrollHandler.handleScroll(
       scrollOffset: scrollAxis == .horizontal
         ? rootView.scrollView.contentOffset.x
@@ -271,5 +290,7 @@ final class ListCoordinator {
         ? rootView.bounds.width
         : rootView.bounds.height
     )
+
+
   }
 }
