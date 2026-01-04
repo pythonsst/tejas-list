@@ -69,6 +69,7 @@ final class ListRootView: UIView, UIScrollViewDelegate {
     // Frame-synchronous scroll signal
     scrollSignalSource?.onFrame = { [weak self] offset, viewport, _ in
       self?.onScroll?(offset, viewport)
+      self.applyStickyHeaders(scrollOffset: offset)
     }
 
     addSubview(scrollView)
@@ -230,6 +231,25 @@ final class ListRootView: UIView, UIScrollViewDelegate {
     }
 
     assertInvariants()
+  }
+
+  private func applyStickyHeaders(scrollOffset: CGFloat) {
+    guard !isFastScrolling else {
+      // Reset sticky transforms when fast scrolling
+      for cell in visibleCells.values {
+        cell.applyStickyOffset(nil)
+      }
+      return
+    }
+
+    for (_, cell) in visibleCells {
+      guard cell.isStickyHeader else { continue }
+
+      let cellTop = cell.frame.minY
+      let pinnedY = max(cellTop, scrollOffset)
+
+      cell.applyStickyOffset(pinnedY)
+    }
   }
 
   // MARK: - Relayout
