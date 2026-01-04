@@ -13,15 +13,16 @@ final class ListCoordinator {
   private let scrollHandler = ListScrollHandler()
   private let measurementBatcher = MeasurementBatcher()
   private let runloopBatcher = RunloopBatcher()
-  // Phase-2: First-frame bootstrap
+
+  // Phase-2 systems
   private let initialBootstrapper = InitialWindowBootstrapper()
-  // Phase-2: Deferred relayout
   private let deferredRelayoutQueue = DeferredRelayoutQueue()
   private let directionTracker = ScrollDirectionTracker()
   private let windowPredictor = VisibleWindowPredictor()
 
-
-
+  // JANK
+  private let fpsMonitor = FPSMonitor()
+  private let jankController = JankController()
 
   // MARK: - State
 
@@ -39,15 +40,26 @@ final class ListCoordinator {
       self?.rebuildLayoutAndMount()
     }
 
+    // FPS → JANK
+    fpsMonitor.start()
+    fpsMonitor.onFPSUpdate = { [weak self] fps in
+      guard let self else { return }
+      if self.jankController.update(fps: fps) {
+        self.applyJankPolicy()
+      }
+    }
+
+    // 🔑 Establish initial policy deterministically
+    applyJankPolicy()
+
     // Frame-synchronous scroll input
     rootView.onScroll = { [weak self] offset, viewport in
       self?.handleScroll(offset: offset, viewport: viewport)
     }
 
-    // Visible range updates (already deduped in ScrollHandler)
+    // Visible range updates
     scrollHandler.onVisibleRangeChange = { [weak self] start, end in
       guard let self else { return }
-      ListDebugLog.debug("Visible range committed: \(start)–\(end)")
 
       ListInvariants.assertRange(
         start: start,
@@ -55,12 +67,11 @@ final class ListCoordinator {
         count: self.layoutEngine.count
       )
 
-      let prefetchOverscan = 6
+      // Base overscan prefetch
+      let overscan = 6
+      let prefetchStart = max(0, start - overscan)
+      let prefetchEnd = min(self.layoutEngine.count - 1, end + overscan)
 
-      let prefetchStart = max(0, start - prefetchOverscan)
-      let prefetchEnd = min(self.layoutEngine.count - 1, end + prefetchOverscan)
-
-      // Prefetch first (non-visible)
       self.rootView.prefetchCells(
         start: prefetchStart,
         end: prefetchEnd,
@@ -75,26 +86,27 @@ final class ListCoordinator {
       )
 
       self.onVisibleRangeChange?(start, end)
-      // 🔮 Phase-2: Predictive prefetch (non-authoritative)
-      if self.scrollHandler.isFastScrolling {
-        if let prediction = self.windowPredictor.predict(
+
+      // 🔮 Predictive prefetch (non-authoritative)
+      if self.scrollHandler.isFastScrolling,
+         self.windowPredictor.isEnabled,
+         let prediction = self.windowPredictor.predict(
           currentStart: start,
           currentEnd: end,
           itemCount: self.layoutEngine.count,
           velocity: self.scrollHandler.velocity,
           motion: self.directionTracker.motion
-        ) {
-          self.rootView.prefetchCells(
-            start: prediction.start,
-            end: prediction.end,
-            layout: self.layoutEngine
-          )
-        }
-      }
+         ) {
 
+        self.rootView.prefetchCells(
+          start: prediction.start,
+          end: prediction.end,
+          layout: self.layoutEngine
+        )
+      }
     }
 
-    // Height measurement (record only, no mutation)
+    // Height measurement (record only)
     rootView.onCellHeightChange = { [weak self] index, height in
       self?.measurementBatcher.record(index: index, height: height)
     }
@@ -102,18 +114,19 @@ final class ListCoordinator {
     // Batched mutation — ONLY mutation point
     measurementBatcher.onFlush = { [weak self] batch in
       guard let self, !batch.isEmpty else { return }
+
       self.scrollHandler.handleScroll(
-          scrollOffset: self.scrollAxis == .horizontal
-            ? self.rootView.scrollView.contentOffset.x
-            : self.rootView.scrollView.contentOffset.y,
-          viewportSize: self.scrollAxis == .horizontal
-            ? self.rootView.bounds.width
-            : self.rootView.bounds.height
-        )
+        scrollOffset: self.scrollAxis == .horizontal
+          ? self.rootView.scrollView.contentOffset.x
+          : self.rootView.scrollView.contentOffset.y,
+        viewportSize: self.scrollAxis == .horizontal
+          ? self.rootView.bounds.width
+          : self.rootView.bounds.height
+      )
+
       self.rootView.isFastScrolling = self.scrollHandler.isFastScrolling
 
-
-      // 🔒 During fast scroll: record dirty range only
+      // During fast scroll: defer relayout
       if self.scrollHandler.isFastScrolling {
         let earliestIndex = batch.keys.min() ?? 0
         self.deferredRelayoutQueue.recordDirty(from: earliestIndex)
@@ -122,12 +135,10 @@ final class ListCoordinator {
 
       ListInvariants.assertMainThread()
 
-      // Prevent re-entrancy
       guard !self.isApplyingMeasurement else { return }
       self.isApplyingMeasurement = true
       defer { self.isApplyingMeasurement = false }
 
-      // Anchor to first visible index
       let anchorIndex =
         self.scrollHandler.firstVisibleIndex
           ?? batch.keys.min()
@@ -135,7 +146,6 @@ final class ListCoordinator {
 
       let oldAnchorOffset = self.layoutEngine.offset(at: anchorIndex)
 
-      // Apply height updates
       for (index, height) in batch {
         self.layoutEngine.markHeightDirty(at: index, height: height)
       }
@@ -145,20 +155,14 @@ final class ListCoordinator {
       let newAnchorOffset = self.layoutEngine.offset(at: anchorIndex)
       let anchorDelta = newAnchorOffset - oldAnchorOffset
 
-      // Update content size
       self.rootView.setContentSize(
         self.scrollAxis == .horizontal
-          ? CGSize(
-              width: self.layoutEngine.totalHeight,
-              height: self.rootView.bounds.height
-            )
-          : CGSize(
-              width: self.rootView.bounds.width,
-              height: self.layoutEngine.totalHeight
-            )
+          ? CGSize(width: self.layoutEngine.totalHeight,
+                   height: self.rootView.bounds.height)
+          : CGSize(width: self.rootView.bounds.width,
+                   height: self.layoutEngine.totalHeight)
       )
 
-      // Scroll anchoring
       if anchorDelta != 0 {
         if self.scrollAxis == .horizontal {
           self.rootView.scrollView.contentOffset.x += anchorDelta
@@ -167,13 +171,12 @@ final class ListCoordinator {
         }
       }
 
-      // Relayout visible cells only
       self.rootView.relayoutVisibleCells(
         from: anchorIndex,
         layout: self.layoutEngine
       )
 
-      // Re-evaluate scroll window ONCE per runloop
+      // Re-evaluate once per runloop
       self.runloopBatcher.schedule { [weak self] in
         guard let self else { return }
 
@@ -185,9 +188,9 @@ final class ListCoordinator {
             ? self.rootView.bounds.width
             : self.rootView.bounds.height
         )
+
         self.rootView.isFastScrolling = self.scrollHandler.isFastScrolling
-        
-        // ✅ Apply deferred relayout once scrolling settles
+
         if !self.scrollHandler.isFastScrolling,
            let startIndex = self.deferredRelayoutQueue.consume() {
 
@@ -198,17 +201,29 @@ final class ListCoordinator {
             layout: self.layoutEngine
           )
         }
-
       }
     }
   }
 
-  // MARK: - Scroll Entry Point
+  // MARK: - JANK policy
 
-  func handleScroll(
-    offset: CGFloat,
-    viewport: CGFloat
-  ) {
+  private func applyJankPolicy() {
+    switch jankController.state {
+    case .normal:
+      scrollHandler.setFastScrollPolicy(.normal)
+      measurementBatcher.isSuspended = false
+      windowPredictor.isEnabled = true
+
+    case .degraded:
+      scrollHandler.setFastScrollPolicy(.aggressive)
+      measurementBatcher.isSuspended = true
+      windowPredictor.isEnabled = false
+    }
+  }
+
+  // MARK: - Scroll entry point
+
+  func handleScroll(offset: CGFloat, viewport: CGFloat) {
     ThreadHopTracker.assertMainThread("scroll signal")
     directionTracker.update(offset: offset)
 
@@ -216,8 +231,8 @@ final class ListCoordinator {
       scrollOffset: offset,
       viewportSize: viewport
     )
-    // 🔑 Phase-2: propagate fast-scroll state
-      rootView.isFastScrolling = scrollHandler.isFastScrolling
+
+    rootView.isFastScrolling = scrollHandler.isFastScrolling
   }
 
   // MARK: - Public API
@@ -234,7 +249,9 @@ final class ListCoordinator {
     scrollHandler.reset()
     directionTracker.reset()
     initialBootstrapper.reset()
-    deferredRelayoutQueue.reset()   // ✅ ADD
+    deferredRelayoutQueue.reset()
+    jankController.reset()
+    applyJankPolicy()
     rebuildLayoutAndMount()
   }
 
@@ -270,30 +287,18 @@ final class ListCoordinator {
       rootView.bounds.width > 0,
       rootView.bounds.height > 0
     else { return }
-    
-    ListDebugLog.info(
-       "Building layout (items=\(layoutEngine.itemCount), estimatedHeight=\(layoutEngine.estimatedItemHeight))"
-     )
 
     needsLayoutBuild = false
     layoutEngine.build()
-    
-    ListDebugLog.info(
-       "Layout built (totalSize=\(layoutEngine.totalHeight))"
-     )
 
     rootView.setContentSize(
       scrollAxis == .horizontal
-        ? CGSize(
-            width: layoutEngine.totalHeight,
-            height: rootView.bounds.height
-          )
-        : CGSize(
-            width: rootView.bounds.width,
-            height: layoutEngine.totalHeight
-          )
+        ? CGSize(width: layoutEngine.totalHeight,
+                 height: rootView.bounds.height)
+        : CGSize(width: rootView.bounds.width,
+                 height: layoutEngine.totalHeight)
     )
-    // ✅ Phase-2: Bootstrap first visible window (no measurement)
+
     if let window = initialBootstrapper.bootstrapIfNeeded(
       itemCount: layoutEngine.count,
       estimatedItemHeight: layoutEngine.estimatedItemHeight,
@@ -308,7 +313,6 @@ final class ListCoordinator {
       )
     }
 
-    // Establish initial visible range state
     scrollHandler.handleScroll(
       scrollOffset: scrollAxis == .horizontal
         ? rootView.scrollView.contentOffset.x
@@ -317,8 +321,13 @@ final class ListCoordinator {
         ? rootView.bounds.width
         : rootView.bounds.height
     )
+
     rootView.isFastScrolling = scrollHandler.isFastScrolling
+  }
 
+  // MARK: - Lifecycle
 
+  deinit {
+    fpsMonitor.stop()
   }
 }

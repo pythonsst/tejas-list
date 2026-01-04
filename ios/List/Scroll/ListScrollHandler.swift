@@ -3,13 +3,13 @@ import QuartzCore
 
 /// Computes visible item range from scroll position.
 ///
-/// PHASE-1 GUARANTEES:
-/// - Frame-driven
-/// - Direction-aware predictive windowing
-/// - No oscillation during fast scroll
-/// - No mount storms
-/// - Bounded overscan
-/// - Emits range ONLY on real change
+/// GUARANTEES:
+/// - Frame-driven (CADisplayLink or delegate)
+/// - Velocity-aware
+/// - Policy-controlled fast-scroll freezing
+/// - Stable windowing (no oscillation)
+/// - Deduped emissions
+/// - Correct anchor semantics (true first visible index)
 final class ListScrollHandler {
 
   // MARK: - Dependencies
@@ -24,6 +24,14 @@ final class ListScrollHandler {
 
   var scrollAxis: ScrollAxis = .vertical
 
+  // MARK: - Policy (JANK controlled)
+
+  private var fastScrollPolicy: FastScrollPolicy = .normal
+
+  func setFastScrollPolicy(_ policy: FastScrollPolicy) {
+    fastScrollPolicy = policy
+  }
+
   // MARK: - State
 
   private var lastStart: Int = -1
@@ -31,6 +39,9 @@ final class ListScrollHandler {
 
   private var lastEmittedStart: Int = -1
   private var lastEmittedEnd: Int = -1
+
+  // True visible anchor (NOT overscanned start)
+  private var lastFirstVisible: Int = -1
 
   private var currentOverscan: Int = 6
   private(set) var isFastScrolling: Bool = false
@@ -50,16 +61,22 @@ final class ListScrollHandler {
     else { return }
 
     // ─────────────────────────────────────
-    // 1. Direction-aware velocity
+    // 1. Velocity tracking
     // ─────────────────────────────────────
 
     let signedVelocity = velocityTracker.velocity(currentOffset: scrollOffset)
     let absVelocity = abs(signedVelocity)
 
-    isFastScrolling = absVelocity > 1200
+    let rawFastScroll = absVelocity > 1200
+
+    // Policy-controlled freeze decision (JANK aware)
+    isFastScrolling = FastScrollRules.shouldFreeze(
+      isFastScrolling: rawFastScroll,
+      policy: fastScrollPolicy
+    )
 
     // ─────────────────────────────────────
-    // 2. Base overscan (velocity-driven)
+    // 2. Overscan control (velocity-driven)
     // ─────────────────────────────────────
 
     let targetOverscan: Int
@@ -86,7 +103,7 @@ final class ListScrollHandler {
     let overscan = currentOverscan
 
     // ─────────────────────────────────────
-    // 3. Visible window (prefix sums)
+    // 3. True visible window (prefix sums)
     // ─────────────────────────────────────
 
     let firstVisible = BinarySearch.firstVisibleIndex(
@@ -100,8 +117,11 @@ final class ListScrollHandler {
       offsets: layout.offsets
     )
 
+    // Store TRUE anchor for relayout & anchoring
+    lastFirstVisible = firstVisible
+
     // ─────────────────────────────────────
-    // 4. Predictive windowing (direction-aware)
+    // 4. Direction-aware predictive overscan
     // ─────────────────────────────────────
 
     let prediction = ScrollRangePredictor.predictOverscan(
@@ -127,6 +147,7 @@ final class ListScrollHandler {
 
     if lastStart != -1 {
       if isFastScrolling {
+        // Hard freeze window during fast scroll
         if nextStart >= lastStart && nextEnd <= lastEnd {
           return
         }
@@ -155,8 +176,9 @@ final class ListScrollHandler {
 
   // MARK: - Public read-only state
 
+  /// True first visible index (NOT overscan start)
   var firstVisibleIndex: Int? {
-    lastStart >= 0 ? lastStart : nil
+    lastFirstVisible >= 0 ? lastFirstVisible : nil
   }
 
   // MARK: - Reset
@@ -166,6 +188,7 @@ final class ListScrollHandler {
     lastEnd = -1
     lastEmittedStart = -1
     lastEmittedEnd = -1
+    lastFirstVisible = -1
     currentOverscan = 6
     isFastScrolling = false
     velocityTracker.reset()

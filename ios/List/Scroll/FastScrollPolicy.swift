@@ -1,8 +1,15 @@
-struct FastScrollPolicy {
+struct FastScrollRules {
 
   static func shouldFreeze(
-    isFastScrolling: Bool
+    isFastScrolling: Bool,
+    policy: FastScrollPolicy
   ) -> Bool {
-    isFastScrolling
+    switch policy {
+    case .normal:
+      return false
+
+    case .aggressive:
+      return isFastScrolling
+    }
   }
 }

@@ -5,6 +5,9 @@ struct PredictedWindow {
 
 final class VisibleWindowPredictor {
 
+  // 🔑 JANK control hook
+  var isEnabled: Bool = true
+
   func predict(
     currentStart: Int,
     currentEnd: Int,
@@ -12,6 +15,9 @@ final class VisibleWindowPredictor {
     velocity: CGFloat,
     motion: ScrollMotion
   ) -> PredictedWindow? {
+
+    // ❄️ Disabled during jank
+    guard isEnabled else { return nil }
 
     guard abs(velocity) > 1200 else { return nil }
     guard motion != .none else { return nil }
