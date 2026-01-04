@@ -17,6 +17,9 @@ final class ListCoordinator {
   private let initialBootstrapper = InitialWindowBootstrapper()
   // Phase-2: Deferred relayout
   private let deferredRelayoutQueue = DeferredRelayoutQueue()
+  private let directionTracker = ScrollDirectionTracker()
+  private let windowPredictor = VisibleWindowPredictor()
+
 
 
 
@@ -72,6 +75,23 @@ final class ListCoordinator {
       )
 
       self.onVisibleRangeChange?(start, end)
+      // 🔮 Phase-2: Predictive prefetch (non-authoritative)
+      if self.scrollHandler.isFastScrolling {
+        if let prediction = self.windowPredictor.predict(
+          currentStart: start,
+          currentEnd: end,
+          itemCount: self.layoutEngine.count,
+          velocity: self.scrollHandler.velocity,
+          motion: self.directionTracker.motion
+        ) {
+          self.rootView.prefetchCells(
+            start: prediction.start,
+            end: prediction.end,
+            layout: self.layoutEngine
+          )
+        }
+      }
+
     }
 
     // Height measurement (record only, no mutation)
@@ -190,6 +210,7 @@ final class ListCoordinator {
     viewport: CGFloat
   ) {
     ThreadHopTracker.assertMainThread("scroll signal")
+    directionTracker.update(offset: offset)
 
     scrollHandler.handleScroll(
       scrollOffset: offset,
@@ -211,6 +232,7 @@ final class ListCoordinator {
 
   func reload() {
     scrollHandler.reset()
+    directionTracker.reset()
     initialBootstrapper.reset()
     deferredRelayoutQueue.reset()   // ✅ ADD
     rebuildLayoutAndMount()

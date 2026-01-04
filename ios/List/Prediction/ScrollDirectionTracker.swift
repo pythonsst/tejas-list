@@ -1,10 +1,3 @@
-import CoreGraphics
-
-enum ScrollMotion {
-  case forward
-  case backward
-  case none
-}
 final class ScrollDirectionTracker {
 
   private var lastOffset: CGFloat = 0
@@ -24,4 +17,3 @@ final class ScrollDirectionTracker {
     motion = .none
   }
 }
-
