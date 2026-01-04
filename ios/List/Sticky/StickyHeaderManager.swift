@@ -2,79 +2,54 @@ import CoreGraphics
 
 /// Computes sticky header positioning.
 ///
-/// RESPONSIBILITY:
-/// - Decide which header is currently sticky
-/// - Compute its vertical offset
-///
 /// HARD GUARANTEES:
-/// - Pure computation (no UIKit)
-/// - Deterministic
-/// - No allocation
-/// - Safe during fast scroll
+/// - Pure computation
+/// - No UIKit
+/// - O(sectionCount)
+/// - Safe on scroll hot path
 final class StickyHeaderManager {
 
-  /// Result of a sticky header computation
   struct StickyResult {
     let index: Int
-    let yOffset: CGFloat
+    let y: CGFloat
   }
 
-  /// Computes the active sticky header (if any).
-  ///
-  /// - Parameters:
-  ///   - firstVisibleIndex: first visible item index
-  ///   - visibleIndices: currently visible indices (sorted)
-  ///   - headerIndices: all sticky header indices (sorted)
-  ///   - offsets: item top offsets (prefix sum)
-  ///   - heights: item heights
-  ///   - scrollOffset: current scroll offset
-  ///
-  /// - Returns: StickyResult if a header should be pinned
-  func computeStickyHeader(
+  func resolveStickyHeader(
+    scrollOffset: CGFloat,
     firstVisibleIndex: Int,
-    visibleIndices: [Int],
-    headerIndices: [Int],
-    offsets: [CGFloat],
-    heights: [CGFloat],
-    scrollOffset: CGFloat
+    layout: ListLayoutEngine,
+    sections: [ListSection]
   ) -> StickyResult? {
 
     guard
-      !headerIndices.isEmpty,
+      !sections.isEmpty,
       firstVisibleIndex >= 0
     else { return nil }
 
-    // 1️⃣ Find last header <= first visible item
-    guard let headerIndex = headerIndices.last(where: { $0 <= firstVisibleIndex }) else {
+    // 1. Find active section header
+    guard let section = sections.last(where: { $0.start <= firstVisibleIndex }) else {
       return nil
     }
 
-    let headerTop = offsets[headerIndex]
-    let headerHeight = heights[headerIndex]
+    let headerIndex = section.headerIndex
+    let headerTop = layout.offset(at: headerIndex)
+    let headerHeight = layout.height(at: headerIndex)
 
-    // Default pinned position
+    // 2. Default pinned position
     var y = scrollOffset
 
-    // 2️⃣ Check if next header is pushing this one
-    if let nextHeader = headerIndices.first(where: { $0 > headerIndex }),
-       visibleIndices.contains(nextHeader) {
-
-      let nextHeaderTop = offsets[nextHeader]
+    // 3. Push-off by next section
+    if let next = sections.first(where: { $0.start > section.start }) {
+      let nextHeaderTop = layout.offset(at: next.headerIndex)
       let pushLimit = nextHeaderTop - headerHeight
-
-      if scrollOffset > pushLimit {
+      if y > pushLimit {
         y = pushLimit
       }
     }
 
-    // 3️⃣ Only sticky once header has reached the top
-    if y < headerTop {
-      return nil
-    }
+    // 4. Activate only after header reaches top
+    guard y >= headerTop else { return nil }
 
-    return StickyResult(
-      index: headerIndex,
-      yOffset: y
-    )
+    return StickyResult(index: headerIndex, y: y)
   }
 }

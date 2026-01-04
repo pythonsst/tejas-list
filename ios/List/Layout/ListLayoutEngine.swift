@@ -1,31 +1,52 @@
 import UIKit
 
-/// Computes item offsets using prefix sums.
-/// Owns height state and layout invalidation.
+/// Prefix-sum based layout engine.
 ///
-/// GUARANTEES:
-/// - Offsets are monotonic
-/// - commit() is atomic
+/// RESPONSIBILITIES:
+/// - Owns item height state
+/// - Computes monotonic offsets
+/// - Applies batched measurement updates atomically
+/// - Exposes read-only layout queries
+///
+/// HARD GUARANTEES:
+/// - Offsets are strictly monotonic
+/// - commit() is the ONLY mutation point
 /// - Dirty heights are applied deterministically
-/// - No UIKit calls
+/// - No UIKit / UIView usage
+/// - Section metadata survives layout rebuilds
 final class ListLayoutEngine {
 
-  // MARK: - Public State
+  // MARK: - Public configuration
 
   var itemCount: Int = 0
   var estimatedItemHeight: CGFloat = 0
+
+  // MARK: - Layout state
 
   private(set) var heights: [CGFloat] = []
   private(set) var offsets: [CGFloat] = []
   private(set) var totalHeight: CGFloat = 0
 
-  // MARK: - Dirty State
+  // MARK: - Sections (Phase-3: Sticky headers)
 
+  /// Semantic section definitions.
+  /// These MUST survive layout rebuilds.
+  private(set) var sections: [ListSection] = []
+
+  func setSections(_ sections: [ListSection]) {
+    self.sections = sections
+  }
+
+  // MARK: - Dirty measurement state
+
+  /// Height updates collected during measurement.
+  /// Applied ONLY during commit().
   private var dirtyHeights: [Int: CGFloat] = [:]
-  private var needsRebuild: Bool = true
 
   // MARK: - Build (cold path)
 
+  /// Initializes layout with estimated heights.
+  /// This does NOT clear section metadata.
   func build() {
     guard itemCount > 0, estimatedItemHeight > 0 else { return }
 
@@ -35,10 +56,9 @@ final class ListLayoutEngine {
     )
 
     rebuildOffsets()
-    needsRebuild = false
   }
 
-  // MARK: - Measurement updates (hot, NO mutation)
+  // MARK: - Measurement recording (hot path, NO mutation)
 
   func markHeightDirty(
     at index: Int,
@@ -50,8 +70,8 @@ final class ListLayoutEngine {
 
   // MARK: - Commit (THE ONLY MUTATION POINT)
 
-  /// Applies dirty heights and recomputes offsets.
-  /// This MUST be atomic.
+  /// Applies all dirty height updates and recomputes offsets.
+  /// This operation MUST be atomic.
   func commit() {
     guard !dirtyHeights.isEmpty else { return }
 
@@ -61,7 +81,7 @@ final class ListLayoutEngine {
     dirtyHeights.removeAll()
   }
 
-  // MARK: - Queries (HOT PATH SAFE)
+  // MARK: - Queries (HOT-PATH SAFE)
 
   func offset(at index: Int) -> CGFloat {
     guard index >= 0, index < offsets.count else { return 0 }
@@ -77,7 +97,7 @@ final class ListLayoutEngine {
     heights.count
   }
 
-  // MARK: - Internal Helpers (PRIVATE)
+  // MARK: - Internal helpers
 
   private func applyDirtyHeights() {
     for (index, height) in dirtyHeights {

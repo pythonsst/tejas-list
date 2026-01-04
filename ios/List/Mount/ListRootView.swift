@@ -27,7 +27,7 @@ final class ListRootView: UIView, UIScrollViewDelegate {
 
   private let snapshotCache = CellSnapshotCache()
 
-  // MARK: - Callbacks
+  // MARK: - Callbacks (Coordinator-owned)
 
   var onScroll: ((CGFloat, CGFloat) -> Void)?
   var onLayoutReady: (() -> Void)?
@@ -42,7 +42,7 @@ final class ListRootView: UIView, UIScrollViewDelegate {
   private var didLayoutOnce = false
   private var scrollAxis: ScrollAxis = .vertical
 
-  /// Driven by coordinator
+  /// Driven exclusively by coordinator
   var isFastScrolling: Bool = false {
     didSet {
       // Transition: fast → normal
@@ -66,10 +66,9 @@ final class ListRootView: UIView, UIScrollViewDelegate {
     scrollSignalSource =
       DisplayLinkScrollSignalSource(scrollView: scrollView)
 
-    // Frame-synchronous scroll signal
+    // Frame-synchronous scroll signal (NO layout logic here)
     scrollSignalSource?.onFrame = { [weak self] offset, viewport, _ in
       self?.onScroll?(offset, viewport)
-      self.applyStickyHeaders(scrollOffset: offset)
     }
 
     addSubview(scrollView)
@@ -220,7 +219,7 @@ final class ListRootView: UIView, UIScrollViewDelegate {
           ? CGRect(x: offset, y: 0, width: size, height: bounds.height)
           : CGRect(x: 0, y: offset, width: bounds.width, height: size)
 
-      // 🔑 Ensure cell is ABOVE snapshot if one exists
+      // Ensure real cell is above snapshot if present
       if let snapshot = snapshotCache.snapshotView(for: index) {
         contentView.insertSubview(cell, aboveSubview: snapshot)
       } else {
@@ -233,22 +232,18 @@ final class ListRootView: UIView, UIScrollViewDelegate {
     assertInvariants()
   }
 
-  private func applyStickyHeaders(scrollOffset: CGFloat) {
-    guard !isFastScrolling else {
-      // Reset sticky transforms when fast scrolling
-      for cell in visibleCells.values {
-        cell.applyStickyOffset(nil)
-      }
-      return
-    }
+  // MARK: - Sticky Header (Phase-3, coordinator-driven)
 
-    for (_, cell) in visibleCells {
-      guard cell.isStickyHeader else { continue }
+  /// Pins a specific header cell at a given Y offset
+  func applyStickyHeader(index: Int, y: CGFloat) {
+    guard let cell = visibleCells[index] else { return }
+    cell.applyStickyOffset(y)
+  }
 
-      let cellTop = cell.frame.minY
-      let pinnedY = max(cellTop, scrollOffset)
-
-      cell.applyStickyOffset(pinnedY)
+  /// Clears all sticky header transforms
+  func clearStickyHeader() {
+    for cell in visibleCells.values {
+      cell.applyStickyOffset(nil)
     }
   }
 
