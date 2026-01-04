@@ -1,3 +1,8 @@
+enum FastScrollPolicy {
+  case normal
+  case aggressive
+}
+
 struct FastScrollRules {
 
   static func shouldFreeze(

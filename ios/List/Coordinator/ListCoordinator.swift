@@ -42,8 +42,9 @@ final class ListCoordinator {
 
     // FPS → JANK
     fpsMonitor.start()
-    fpsMonitor.onFPSUpdate = { [weak self] fps in
+    fpsMonitor.onFPS = { [weak self] fps in
       guard let self else { return }
+
       if self.jankController.update(fps: fps) {
         self.applyJankPolicy()
       }

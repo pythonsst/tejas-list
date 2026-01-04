@@ -1,11 +1,17 @@
 final class JankController {
 
+  // MARK: - State
+
   private(set) var state: JankState = .normal
 
-  // Conservative thresholds
+  // MARK: - Thresholds
+
   private let degradeFPS: Double = 48
   private let recoverFPS: Double = 56
 
+  // MARK: - Update
+
+  /// Returns true if state changed
   func update(fps: Double) -> Bool {
     switch state {
     case .normal:
@@ -20,8 +26,11 @@ final class JankController {
         return true
       }
     }
+
     return false
   }
+
+  // MARK: - Reset
 
   func reset() {
     state = .normal
