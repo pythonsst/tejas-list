@@ -12,6 +12,7 @@ final class ListCoordinator {
   private let layoutEngine = ListLayoutEngine()
   private let scrollHandler = ListScrollHandler()
   private let measurementBatcher = MeasurementBatcher()
+  private let runloopBatcher = RunloopBatcher()
 
   // MARK: - State
 
@@ -29,35 +30,35 @@ final class ListCoordinator {
       self?.rebuildLayoutAndMount()
     }
 
-    // Scroll events
+    // Frame-synchronous scroll input
     rootView.onScroll = { [weak self] offset, viewport in
-      self?.scrollHandler.handleScroll(
-        scrollOffset: offset,
-        viewportSize: viewport
-      )
+      self?.handleScroll(offset: offset, viewport: viewport)
     }
 
-    // Visible range updates
+    // Visible range updates (already deduped in ScrollHandler)
     scrollHandler.onVisibleRangeChange = { [weak self] start, end in
       guard let self else { return }
-      
+      ListDebugLog.debug("Visible range committed: \(start)–\(end)")
+
       ListInvariants.assertRange(
         start: start,
         end: end,
         count: self.layoutEngine.count
       )
 
-      // 1. Prefetch first (NO visible pollution)
-      let prefetchStart = max(0, start - 6)
-      let prefetchEnd = min(self.layoutEngine.count - 1, end + 6)
+      let prefetchOverscan = 6
 
+      let prefetchStart = max(0, start - prefetchOverscan)
+      let prefetchEnd = min(self.layoutEngine.count - 1, end + prefetchOverscan)
+
+      // Prefetch first (non-visible)
       self.rootView.prefetchCells(
         start: prefetchStart,
         end: prefetchEnd,
         layout: self.layoutEngine
       )
 
-      // 2. Mount visible
+      // Mount visible range
       self.rootView.mountCells(
         start: start,
         end: end,
@@ -67,34 +68,47 @@ final class ListCoordinator {
       self.onVisibleRangeChange?(start, end)
     }
 
-    // Height measurement (NO mutation here)
+    // Height measurement (record only, no mutation)
     rootView.onCellHeightChange = { [weak self] index, height in
       self?.measurementBatcher.record(index: index, height: height)
     }
 
-    // Batched mutation (ONLY mutation point)
+    // Batched mutation — ONLY mutation point
     measurementBatcher.onFlush = { [weak self] batch in
       guard let self, !batch.isEmpty else { return }
-      
-      ListInvariants.assertMainThread()
-      ListInvariants.assertLayoutConsistency(
-        heights: self.layoutEngine.heights,
-        offsets: self.layoutEngine.offsets,
-        total: self.layoutEngine.totalHeight
-      )
+      self.scrollHandler.handleScroll(
+          scrollOffset: self.scrollAxis == .horizontal
+            ? self.rootView.scrollView.contentOffset.x
+            : self.rootView.scrollView.contentOffset.y,
+          viewportSize: self.scrollAxis == .horizontal
+            ? self.rootView.bounds.width
+            : self.rootView.bounds.height
+        )
 
+      // 🔒 Hard freeze during fast scroll
+      if self.scrollHandler.isFastScrolling {
+        return
+      }
+
+      ListInvariants.assertMainThread()
 
       // Prevent re-entrancy
       guard !self.isApplyingMeasurement else { return }
       self.isApplyingMeasurement = true
 
-      let anchorIndex = batch.keys.min() ?? 0
+      // Anchor to first visible index
+      let anchorIndex =
+        self.scrollHandler.firstVisibleIndex
+          ?? batch.keys.min()
+          ?? 0
+
       let oldAnchorOffset = self.layoutEngine.offset(at: anchorIndex)
 
-      // Apply height changes
-      batch.forEach { index, height in
+      // Apply height updates
+      for (index, height) in batch {
         self.layoutEngine.markHeightDirty(at: index, height: height)
       }
+
       self.layoutEngine.commit()
 
       let newAnchorOffset = self.layoutEngine.offset(at: anchorIndex)
@@ -113,7 +127,7 @@ final class ListCoordinator {
             )
       )
 
-      // Scroll anchoring (ALWAYS when delta != 0)
+      // Scroll anchoring
       if anchorDelta != 0 {
         if self.scrollAxis == .horizontal {
           self.rootView.scrollView.contentOffset.x += anchorDelta
@@ -128,19 +142,36 @@ final class ListCoordinator {
         layout: self.layoutEngine
       )
 
-      // DO NOT reset scroll handler here
-      // Just re-evaluate once
-      self.scrollHandler.handleScroll(
-        scrollOffset: self.scrollAxis == .horizontal
-          ? self.rootView.scrollView.contentOffset.x
-          : self.rootView.scrollView.contentOffset.y,
-        viewportSize: self.scrollAxis == .horizontal
-          ? self.rootView.bounds.width
-          : self.rootView.bounds.height
-      )
+      // Re-evaluate scroll window ONCE per runloop
+      self.runloopBatcher.schedule { [weak self] in
+        guard let self else { return }
+
+        self.scrollHandler.handleScroll(
+          scrollOffset: self.scrollAxis == .horizontal
+            ? self.rootView.scrollView.contentOffset.x
+            : self.rootView.scrollView.contentOffset.y,
+          viewportSize: self.scrollAxis == .horizontal
+            ? self.rootView.bounds.width
+            : self.rootView.bounds.height
+        )
+      }
 
       self.isApplyingMeasurement = false
     }
+  }
+
+  // MARK: - Scroll Entry Point
+
+  func handleScroll(
+    offset: CGFloat,
+    viewport: CGFloat
+  ) {
+    ThreadHopTracker.assertMainThread("scroll signal")
+
+    scrollHandler.handleScroll(
+      scrollOffset: offset,
+      viewportSize: viewport
+    )
   }
 
   // MARK: - Public API
@@ -190,9 +221,17 @@ final class ListCoordinator {
       rootView.bounds.width > 0,
       rootView.bounds.height > 0
     else { return }
+    
+    ListDebugLog.info(
+       "Building layout (items=\(layoutEngine.itemCount), estimatedHeight=\(layoutEngine.estimatedItemHeight))"
+     )
 
     needsLayoutBuild = false
     layoutEngine.build()
+    
+    ListDebugLog.info(
+       "Layout built (totalSize=\(layoutEngine.totalHeight))"
+     )
 
     rootView.setContentSize(
       scrollAxis == .horizontal

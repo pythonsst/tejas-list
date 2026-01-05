@@ -1,14 +1,14 @@
 import UIKit
+import QuartzCore
 
 /// Root scroll container for the native list.
 /// Owns mounting, recycling, and frame application.
 ///
-/// GUARANTEES (FINAL):
+/// GUARANTEES:
 /// - visibleCells contain ONLY visible cells
 /// - prefetchedCells are hidden + non-measuring
 /// - reuse pool is the PRIMARY allocator
 /// - fallback allocation allowed (bounded, safe)
-/// - NO manual counters
 /// - deterministic mount / recycle
 /// - bounded memory usage
 final class ListRootView: UIView, UIScrollViewDelegate {
@@ -17,6 +17,7 @@ final class ListRootView: UIView, UIScrollViewDelegate {
 
   let scrollView = UIScrollView()
   private let contentView = UIView()
+  private var scrollSignalSource: ScrollSignalSource?
 
   // MARK: - Callbacks
 
@@ -45,8 +46,18 @@ final class ListRootView: UIView, UIScrollViewDelegate {
     scrollView.delegate = self
     scrollView.contentInsetAdjustmentBehavior = .never
 
+    scrollSignalSource =
+      DisplayLinkScrollSignalSource(scrollView: scrollView)
+
+    // 🚫 HOT PATH → NO LOGGING
+    scrollSignalSource?.onFrame = { [weak self] offset, viewport, _ in
+      self?.onScroll?(offset, viewport)
+    }
+
     addSubview(scrollView)
     scrollView.addSubview(contentView)
+
+    ListDebugLog.info("ListRootView initialized")
   }
 
   required init?(coder: NSCoder) {
@@ -59,6 +70,8 @@ final class ListRootView: UIView, UIScrollViewDelegate {
     scrollAxis = axis
     scrollView.alwaysBounceVertical = axis == .vertical
     scrollView.alwaysBounceHorizontal = axis == .horizontal
+
+    ListDebugLog.info("Scroll axis set to \(axis)")
   }
 
   // MARK: - Layout
@@ -69,7 +82,10 @@ final class ListRootView: UIView, UIScrollViewDelegate {
 
     if !didLayoutOnce, bounds.width > 0, bounds.height > 0 {
       didLayoutOnce = true
+      scrollSignalSource?.start()
       onLayoutReady?()
+
+      ListDebugLog.info("Initial layout completed")
     }
   }
 
@@ -90,7 +106,6 @@ final class ListRootView: UIView, UIScrollViewDelegate {
     for index in start...end {
       if visibleCells[index] != nil { continue }
       if prefetchedCells[index] != nil { continue }
-
       guard let cell = reusePool.dequeueIfAvailable() else { continue }
 
       cell.isHidden = true
@@ -116,22 +131,26 @@ final class ListRootView: UIView, UIScrollViewDelegate {
       cell.removeFromSuperview()
       reusePool.recycle(cell)
     }
+
+    // 🔒 HARD SAFETY CHECK
+    ListInvariants.assertMaxMounted(
+      visible: visibleCells.count,
+      prefetched: prefetchedCells.count
+    )
   }
 
-  // MARK: - Mount / Recycle (DETERMINISTIC, SAFE)
+  // MARK: - Mount / Recycle
 
   func mountCells(
     start: Int,
     end: Int,
     layout: ListLayoutEngine
   ) {
-    // 🔻 Recycle exited visible cells
-    for index in visibleCells.keys {
-      if index < start || index > end {
-        let cell = visibleCells.removeValue(forKey: index)!
-        cell.removeFromSuperview()
-        reusePool.recycle(cell)
-      }
+    // Recycle exited cells
+    for index in visibleCells.keys where index < start || index > end {
+      let cell = visibleCells.removeValue(forKey: index)!
+      cell.removeFromSuperview()
+      reusePool.recycle(cell)
     }
 
     guard start <= end else {
@@ -139,7 +158,7 @@ final class ListRootView: UIView, UIScrollViewDelegate {
       return
     }
 
-    // 🔺 Mount missing visible cells
+    // Mount visible cells
     for index in start...end {
       if visibleCells[index] != nil { continue }
 
@@ -152,7 +171,6 @@ final class ListRootView: UIView, UIScrollViewDelegate {
         cell = reused
         cell.bind(index: index)
       } else {
-        // ✅ FINAL FIX: controlled fallback allocation
         cell = ListCellView()
         cell.bind(index: index)
       }
@@ -176,15 +194,15 @@ final class ListRootView: UIView, UIScrollViewDelegate {
 
     assertInvariants()
 
-    debugPrint(
-      """
-      [ListRootView]
-      Visible: \(visibleCells.count)
-      Prefetched: \(prefetchedCells.count)
-      Pool: \(reusePool.count)
-      Mounted (derived): \(visibleCells.count + prefetchedCells.count)
-      Visible range: \(start)–\(end)
-      """
+    // 🔒 HARD SAFETY CHECK
+    ListInvariants.assertMaxMounted(
+      visible: visibleCells.count,
+      prefetched: prefetchedCells.count
+    )
+
+    // Safe, discrete log
+    ListDebugLog.debug(
+      "Mount complete | visible=\(visibleCells.count) prefetched=\(prefetchedCells.count)"
     )
   }
 
@@ -205,7 +223,7 @@ final class ListRootView: UIView, UIScrollViewDelegate {
     }
   }
 
-  // MARK: - Scroll Delegate
+  // MARK: - Scroll Delegate (fallback)
 
   func scrollViewDidScroll(_ scrollView: UIScrollView) {
     if scrollAxis == .horizontal {
@@ -223,5 +241,10 @@ final class ListRootView: UIView, UIScrollViewDelegate {
     let prefetchedKeys = Set(prefetchedCells.keys)
     assert(visibleKeys.isDisjoint(with: prefetchedKeys))
     #endif
+  }
+
+  deinit {
+    scrollSignalSource?.stop()
+    ListDebugLog.info("ListRootView deinitialized")
   }
 }

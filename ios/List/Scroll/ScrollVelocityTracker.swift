@@ -1,22 +1,21 @@
 import QuartzCore
+import UIKit
 
-/// Stable scroll velocity tracker (points / second)
-/// HARD guarantees:
-/// - Smoothed velocity (no spikes)
-/// - Deterministic decay
-/// - Safe for virtualization heuristics
+/// Computes scroll velocity in points/sec.
+/// - Signed velocity: direction-aware
+/// - Absolute velocity: magnitude-only
+/// - Frame-safe, allocation-free
 final class ScrollVelocityTracker {
 
-  private var lastOffset: CGFloat = 0
-  private var lastTimestamp: CFTimeInterval = 0
+  // MARK: - State
 
-  // Exponential moving average
-  private var smoothedVelocity: CGFloat = 0
+  private var lastOffset: CGFloat?
+  private var lastTimestamp: CFTimeInterval?
 
-  // Tunables (DO NOT CHANGE)
-  private let smoothingFactor: CGFloat = 0.2   // lower = smoother
-  private let minDeltaTime: CFTimeInterval = 1.0 / 120.0
+  // MARK: - Public API
 
+  /// Returns signed velocity (points/sec).
+  /// Positive = forward scroll, Negative = backward scroll.
   func velocity(currentOffset: CGFloat) -> CGFloat {
     let now = CACurrentMediaTime()
 
@@ -25,27 +24,31 @@ final class ScrollVelocityTracker {
       lastTimestamp = now
     }
 
-    guard lastTimestamp > 0 else { return 0 }
-
-    let dt = now - lastTimestamp
-    guard dt >= minDeltaTime else {
-      return smoothedVelocity
+    guard
+      let lastOffset,
+      let lastTimestamp
+    else {
+      return 0
     }
 
-    let delta = abs(currentOffset - lastOffset)
-    let instantVelocity = delta / CGFloat(dt)
+    let deltaOffset = currentOffset - lastOffset
+    let deltaTime = now - lastTimestamp
 
-    // EMA smoothing (critical)
-    smoothedVelocity =
-      (instantVelocity * smoothingFactor) +
-      (smoothedVelocity * (1 - smoothingFactor))
+    guard deltaTime > 0 else {
+      return 0
+    }
 
-    return smoothedVelocity
+    return deltaOffset / deltaTime
   }
 
+  /// Absolute velocity (magnitude only).
+  func absoluteVelocity(currentOffset: CGFloat) -> CGFloat {
+    abs(velocity(currentOffset: currentOffset))
+  }
+
+  /// Reset internal state (used on reload / layout rebuild).
   func reset() {
-    lastOffset = 0
-    lastTimestamp = 0
-    smoothedVelocity = 0
+    lastOffset = nil
+    lastTimestamp = nil
   }
 }
