@@ -1,44 +1,44 @@
 import QuartzCore
 
-/// Lightweight UI-thread FPS monitor.
 final class FPSMonitor {
 
-  private var link: CADisplayLink?
+  private var displayLink: CADisplayLink?
   private var lastTimestamp: CFTimeInterval = 0
-  private var frames = 0
+  private var frameCount = 0
 
-  /// Called once per second with current FPS.
-  var onUpdate: ((Int) -> Void)?
+  var onFPS: ((Double) -> Void)?
 
   func start() {
     stop()
     lastTimestamp = 0
-    frames = 0
+    frameCount = 0
 
-    let link = CADisplayLink(target: self, selector: #selector(tick))
-    link.add(to: .main, forMode: .common)
-    self.link = link
+    displayLink = CADisplayLink(
+      target: self,
+      selector: #selector(tick)
+    )
+    displayLink?.add(to: .main, forMode: .common)
   }
 
   func stop() {
-    link?.invalidate()
-    link = nil
+    displayLink?.invalidate()
+    displayLink = nil
   }
 
-  @objc private func tick(_ link: CADisplayLink) {
+  @objc private func tick(link: CADisplayLink) {
     if lastTimestamp == 0 {
       lastTimestamp = link.timestamp
       return
     }
 
-    frames += 1
+    frameCount += 1
     let delta = link.timestamp - lastTimestamp
 
     if delta >= 1 {
-      let fps = Int(round(Double(frames) / delta))
-      onUpdate?(fps)
+      let fps = Double(frameCount) / delta
+      onFPS?(fps)
 
-      frames = 0
+      frameCount = 0
       lastTimestamp = link.timestamp
     }
   }

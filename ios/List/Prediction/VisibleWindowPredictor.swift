@@ -1,39 +1,42 @@
-import CoreGraphics
+struct PredictedWindow {
+  let start: Int
+  let end: Int
+}
 
-/// Computes render-ahead visible window.
 final class VisibleWindowPredictor {
 
-  private let predictionTime: CGFloat = 0.2
-  private let maxDistance: CGFloat = 1200
+  // 🔑 JANK control hook
+  var isEnabled: Bool = true
 
   func predict(
-    currentOffset: CGFloat,
-    viewport: CGFloat,
-    kinematics: ScrollKinematics,
-    offsets: [CGFloat]
-  ) -> (start: Int, end: Int)? {
+    currentStart: Int,
+    currentEnd: Int,
+    itemCount: Int,
+    velocity: CGFloat,
+    motion: ScrollMotion
+  ) -> PredictedWindow? {
 
-    guard !offsets.isEmpty else { return nil }
+    // ❄️ Disabled during jank
+    guard isEnabled else { return nil }
 
-    let clampedVelocity =
-      max(min(kinematics.velocity, maxDistance), -maxDistance)
+    guard abs(velocity) > 1200 else { return nil }
+    guard motion != .none else { return nil }
 
-    let predictedOffset =
-      currentOffset + clampedVelocity * predictionTime
+    let lookahead = min(20, max(8, Int(abs(velocity) / 400)))
 
-    let safeOffset = max(predictedOffset, 0)
+    switch motion {
+    case .forward:
+      let start = min(itemCount - 1, currentEnd + 1)
+      let end = min(itemCount - 1, currentEnd + lookahead)
+      return start <= end ? PredictedWindow(start: start, end: end) : nil
 
-    let start = BinarySearch.firstVisibleIndex(
-      scrollOffset: safeOffset,
-      offsets: offsets
-    )
+    case .backward:
+      let end = max(0, currentStart - 1)
+      let start = max(0, currentStart - lookahead)
+      return start <= end ? PredictedWindow(start: start, end: end) : nil
 
-    let end = BinarySearch.lastVisibleIndex(
-      scrollOffset: safeOffset,
-      viewportSize: viewport,
-      offsets: offsets
-    )
-
-    return start <= end ? (start, end) : nil
+    case .none:
+      return nil
+    }
   }
 }

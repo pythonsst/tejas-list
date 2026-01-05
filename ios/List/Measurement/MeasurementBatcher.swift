@@ -12,12 +12,16 @@ final class MeasurementBatcher {
   private var pending: [Int: CGFloat] = [:]
   private var isScheduled = false
 
+  // 🔑 JANK control hook
+  var isSuspended: Bool = false
+
   /// Called once per batch on main thread
   var onFlush: (([Int: CGFloat]) -> Void)?
 
   // MARK: - Record
 
   func record(index: Int, height: CGFloat) {
+    guard !isSuspended else { return }
     assert(Thread.isMainThread)
 
     pending[index] = height

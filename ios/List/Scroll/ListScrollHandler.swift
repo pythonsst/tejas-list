@@ -3,13 +3,13 @@ import QuartzCore
 
 /// Computes visible item range from scroll position.
 ///
-/// PHASE-1 GUARANTEES:
+/// GUARANTEES:
 /// - Frame-driven
-/// - Direction-aware predictive windowing
-/// - No oscillation during fast scroll
-/// - No mount storms
-/// - Bounded overscan
-/// - Emits range ONLY on real change
+/// - Velocity-aware
+/// - Policy-controlled fast-scroll freezing
+/// - Stable windowing (no oscillation)
+/// - Deduped emissions
+/// - Correct anchor semantics
 final class ListScrollHandler {
 
   // MARK: - Dependencies
@@ -24,7 +24,24 @@ final class ListScrollHandler {
 
   var scrollAxis: ScrollAxis = .vertical
 
+  // MARK: - Policy (JANK controlled)
+
+  private var fastScrollPolicy: FastScrollPolicy = .normal
+
+  func setFastScrollPolicy(_ policy: FastScrollPolicy) {
+    fastScrollPolicy = policy
+  }
+
   // MARK: - State
+  
+  
+  private enum ScrollFreezeState {
+    case active
+    case frozen
+  }
+
+  private var freezeState: ScrollFreezeState = .active
+
 
   private var lastStart: Int = -1
   private var lastEnd: Int = -1
@@ -32,10 +49,14 @@ final class ListScrollHandler {
   private var lastEmittedStart: Int = -1
   private var lastEmittedEnd: Int = -1
 
+  // True visible anchor (NOT overscanned start)
+  private var lastFirstVisible: Int = -1
+
   private var currentOverscan: Int = 6
   private(set) var isFastScrolling: Bool = false
 
   private let velocityTracker = ScrollVelocityTracker()
+  private var lastVelocity: CGFloat = 0
 
   // MARK: - Scroll handling (HOT PATH)
 
@@ -49,29 +70,38 @@ final class ListScrollHandler {
       viewportSize > 0
     else { return }
 
-    // ─────────────────────────────────────
-    // 1. Direction-aware velocity
-    // ─────────────────────────────────────
-
+    // 1. Velocity tracking
     let signedVelocity = velocityTracker.velocity(currentOffset: scrollOffset)
+    lastVelocity = signedVelocity
     let absVelocity = abs(signedVelocity)
 
-    isFastScrolling = absVelocity > 1200
+    let rawFastScroll = absVelocity > 1200
 
-    // ─────────────────────────────────────
-    // 2. Base overscan (velocity-driven)
-    // ─────────────────────────────────────
+    // Policy-controlled freeze decision
+    let shouldFreeze = FastScrollRules.shouldFreeze(
+      isFastScrolling: rawFastScroll,
+      policy: fastScrollPolicy
+    )
 
+    let newState: ScrollFreezeState = shouldFreeze ? .frozen : .active
+
+    if newState != freezeState {
+      freezeState = newState
+      ListDebugLog.info(
+        "Scroll freeze → \(freezeState) (velocity=\(Int(absVelocity)))"
+      )
+    }
+
+    isFastScrolling = shouldFreeze
+
+
+    // 2. Overscan control
     let targetOverscan: Int
     switch absVelocity {
-    case 3000...:
-      targetOverscan = 1
-    case 1500..<3000:
-      targetOverscan = 2
-    case 800..<1500:
-      targetOverscan = 4
-    default:
-      targetOverscan = 6
+    case 3000...: targetOverscan = 1
+    case 1500..<3000: targetOverscan = 2
+    case 800..<1500: targetOverscan = 4
+    default: targetOverscan = 6
     }
 
     if !isFastScrolling {
@@ -85,10 +115,7 @@ final class ListScrollHandler {
     currentOverscan = min(currentOverscan, 8)
     let overscan = currentOverscan
 
-    // ─────────────────────────────────────
-    // 3. Visible window (prefix sums)
-    // ─────────────────────────────────────
-
+    // 3. True visible window
     let firstVisible = BinarySearch.firstVisibleIndex(
       scrollOffset: scrollOffset,
       offsets: layout.offsets
@@ -100,10 +127,9 @@ final class ListScrollHandler {
       offsets: layout.offsets
     )
 
-    // ─────────────────────────────────────
-    // 4. Predictive windowing (direction-aware)
-    // ─────────────────────────────────────
+    lastFirstVisible = firstVisible
 
+    // 4. Predictive overscan
     let prediction = ScrollRangePredictor.predictOverscan(
       velocity: signedVelocity,
       viewportSize: viewportSize,
@@ -111,20 +137,10 @@ final class ListScrollHandler {
       baseOverscan: overscan
     )
 
-    let nextStart = max(
-      firstVisible - overscan - prediction.leading,
-      0
-    )
+    let nextStart = max(firstVisible - overscan - prediction.leading, 0)
+    let nextEnd = min(lastVisible + overscan + prediction.trailing, layout.count - 1)
 
-    let nextEnd = min(
-      lastVisible + overscan + prediction.trailing,
-      layout.count - 1
-    )
-
-    // ─────────────────────────────────────
-    // 5. Window stability rules
-    // ─────────────────────────────────────
-
+    // 5. Stability rules
     if lastStart != -1 {
       if isFastScrolling {
         if nextStart >= lastStart && nextEnd <= lastEnd {
@@ -139,10 +155,7 @@ final class ListScrollHandler {
       }
     }
 
-    // ─────────────────────────────────────
-    // 6. Commit window (deduped)
-    // ─────────────────────────────────────
-
+    // 6. Commit window
     lastStart = nextStart
     lastEnd = nextEnd
 
@@ -156,7 +169,11 @@ final class ListScrollHandler {
   // MARK: - Public read-only state
 
   var firstVisibleIndex: Int? {
-    lastStart >= 0 ? lastStart : nil
+    lastFirstVisible >= 0 ? lastFirstVisible : nil
+  }
+
+  var velocity: CGFloat {
+    lastVelocity
   }
 
   // MARK: - Reset
@@ -166,8 +183,11 @@ final class ListScrollHandler {
     lastEnd = -1
     lastEmittedStart = -1
     lastEmittedEnd = -1
+    lastFirstVisible = -1
     currentOverscan = 6
     isFastScrolling = false
+    lastVelocity = 0
+    freezeState = .active   // ✅ ADD THIS
     velocityTracker.reset()
   }
 }

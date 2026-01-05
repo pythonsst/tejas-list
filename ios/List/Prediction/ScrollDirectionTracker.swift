@@ -1,27 +1,19 @@
-import CoreGraphics
-
-enum ScrollDirection {
-  case forward
-  case backward
-  case none
-}
-
 final class ScrollDirectionTracker {
 
   private var lastOffset: CGFloat = 0
-  private(set) var direction: ScrollDirection = .none
+  private(set) var motion: ScrollMotion = .none
 
   func update(offset: CGFloat) {
     if offset > lastOffset {
-      direction = .forward
+      motion = .forward
     } else if offset < lastOffset {
-      direction = .backward
+      motion = .backward
     }
     lastOffset = offset
   }
 
   func reset() {
     lastOffset = 0
-    direction = .none
+    motion = .none
   }
 }

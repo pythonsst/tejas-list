@@ -11,6 +11,27 @@ final class ListCellView: UIView {
   private(set) var index: Int = -1
   private var boundIndex: Int = -1
 
+  // MARK: - Sticky Header
+
+  /// Marks this cell as eligible for sticky behavior
+  var isStickyHeader: Bool = false
+
+  /// Applies or resets sticky positioning
+  func applyStickyOffset(_ yOffset: CGFloat?) {
+    guard isStickyHeader else { return }
+
+    if let yOffset {
+      transform = CGAffineTransform(
+        translationX: 0,
+        y: yOffset - frame.minY
+      )
+      layer.zPosition = 1
+    } else {
+      transform = .identity
+      layer.zPosition = 0
+    }
+  }
+
   // MARK: - Callbacks
 
   var onSizeMeasured: ((CGFloat) -> Void)?
@@ -101,7 +122,9 @@ final class ListCellView: UIView {
 
     label.text = nil
     onSizeMeasured = nil
+    isStickyHeader = false
 
+    applyStickyOffset(nil)
     invalidateMeasurement()
   }
 
