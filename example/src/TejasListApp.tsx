@@ -11,6 +11,7 @@ export default function TejasListApp() {
         itemCount={ITEM_COUNT}
         estimatedItemHeight={ESTIMATED_ITEM_HEIGHT}
         rowSpacing={16}
+        itemString="Row" // ✅ REQUIRED NOW
         style={styles.list}
         itemStyle={styles.item}
       />
@@ -21,8 +22,6 @@ export default function TejasListApp() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-
-    // iOS grouped background
     backgroundColor: '#F2F2F7',
   },
 
@@ -32,18 +31,11 @@ const styles = StyleSheet.create({
     paddingTop: 8,
   },
 
-  /**
-   * Visual-only row style
-   * (SAFE for TejasList layout engine)
-   */
   item: {
     paddingHorizontal: 18,
     paddingVertical: 16,
-
     backgroundColor: '#FFFFFF',
     borderRadius: 20,
-
-    // subtle definition without shadows
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: '#D1D1D6',
   },
