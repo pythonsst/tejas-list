@@ -21,6 +21,13 @@ final class ListLayoutEngine {
   var itemCount: Int = 0
   var estimatedItemHeight: CGFloat = 0
 
+  /// Layout-level spacing (default = 0)
+  var rowSpacing: CGFloat = 0
+  var columnSpacing: CGFloat = 0
+
+  /// Scroll axis (drives spacing choice)
+  var scrollAxis: ScrollAxis = .vertical
+
   // MARK: - Layout state
 
   private(set) var heights: [CGFloat] = []
@@ -29,8 +36,6 @@ final class ListLayoutEngine {
 
   // MARK: - Sections (Phase-3: Sticky headers)
 
-  /// Semantic section definitions.
-  /// These MUST survive layout rebuilds.
   private(set) var sections: [ListSection] = []
 
   func setSections(_ sections: [ListSection]) {
@@ -39,14 +44,10 @@ final class ListLayoutEngine {
 
   // MARK: - Dirty measurement state
 
-  /// Height updates collected during measurement.
-  /// Applied ONLY during commit().
   private var dirtyHeights: [Int: CGFloat] = [:]
 
   // MARK: - Build (cold path)
 
-  /// Initializes layout with estimated heights.
-  /// This does NOT clear section metadata.
   func build() {
     guard itemCount > 0, estimatedItemHeight > 0 else { return }
 
@@ -58,7 +59,7 @@ final class ListLayoutEngine {
     rebuildOffsets()
   }
 
-  // MARK: - Measurement recording (hot path, NO mutation)
+  // MARK: - Measurement recording (hot path)
 
   func markHeightDirty(
     at index: Int,
@@ -70,8 +71,6 @@ final class ListLayoutEngine {
 
   // MARK: - Commit (THE ONLY MUTATION POINT)
 
-  /// Applies all dirty height updates and recomputes offsets.
-  /// This operation MUST be atomic.
   func commit() {
     guard !dirtyHeights.isEmpty else { return }
 
@@ -105,13 +104,24 @@ final class ListLayoutEngine {
     }
   }
 
+  /// Recomputes offsets and total content size.
+  /// This is the ONLY place spacing is applied.
   private func rebuildOffsets() {
     offsets = Array(repeating: 0, count: heights.count)
 
+    let spacing: CGFloat =
+      scrollAxis == .vertical ? rowSpacing : columnSpacing
+
     var running: CGFloat = 0
+
     for i in 0..<heights.count {
       offsets[i] = running
       running += heights[i]
+
+      // Add spacing AFTER each item except the last
+      if spacing > 0, i < heights.count - 1 {
+        running += spacing
+      }
     }
 
     totalHeight = running

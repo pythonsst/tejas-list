@@ -125,6 +125,19 @@ final class ListCoordinator {
 
   // MARK: - Scroll Entry Point
   
+  // MARK: - Layout Spacing
+
+  func setRowSpacing(_ spacing: CGFloat) {
+    layoutEngine.rowSpacing = spacing
+    needsLayoutBuild = true
+  }
+
+  func setColumnSpacing(_ spacing: CGFloat) {
+    layoutEngine.columnSpacing = spacing
+    needsLayoutBuild = true
+  }
+
+  
   
   func setItemStyle(_ style: ItemStyle?) {
     self.itemStyle = style
