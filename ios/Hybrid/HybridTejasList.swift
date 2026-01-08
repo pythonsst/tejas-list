@@ -38,6 +38,26 @@ final class HybridTejasList: HybridTejasListSpec {
     }
   }
 
+  // MARK: - Layout Spacing (NEW)
+  // MARK: - Layout Spacing
+
+  var rowSpacing: Double? {
+    didSet {
+      let value = rowSpacing ?? 0
+      coordinator.setRowSpacing(CGFloat(value))
+      needsReload = true
+    }
+  }
+
+  var columnSpacing: Double? {
+    didSet {
+      let value = columnSpacing ?? 0
+      coordinator.setColumnSpacing(CGFloat(value))
+      needsReload = true
+    }
+  }
+
+
   var onVisibleRangeChange: ((Double, Double) -> Void)? {
     didSet {
       coordinator.onVisibleRangeChange = { [weak self] start, end in

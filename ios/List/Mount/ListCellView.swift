@@ -17,10 +17,8 @@ final class ListCellView: UIView {
 
   // MARK: - Sticky Header
 
-  /// Marks this cell as eligible for sticky behavior
   var isStickyHeader: Bool = false
 
-  /// Applies or resets sticky positioning
   func applyStickyOffset(_ yOffset: CGFloat?) {
     guard isStickyHeader else { return }
 
@@ -53,7 +51,7 @@ final class ListCellView: UIView {
 
   var onSizeMeasured: ((CGFloat) -> Void)?
 
-  // MARK: - Measurement state
+  // MARK: - Measurement State
 
   private var lastMeasuredSize: CGFloat = -1
   private var lastMeasureKey: CGFloat = -1
@@ -84,7 +82,7 @@ final class ListCellView: UIView {
     invalidateMeasurement()
   }
 
-  // MARK: - Style Application (FINAL)
+  // MARK: - Style Application
 
   func applyStyle(_ style: ItemStyle?) {
     itemStyle = style
@@ -122,8 +120,8 @@ final class ListCellView: UIView {
       layer.borderColor = nil
     }
 
-    layer.cornerRadius = style.borderRadius
-    layer.borderWidth = style.borderWidth
+    layer.cornerRadius = CGFloat(style.borderRadius ?? 0)
+    layer.borderWidth = CGFloat(style.borderWidth ?? 0)
 
     invalidateMeasurement()
   }
@@ -135,8 +133,19 @@ final class ListCellView: UIView {
 
     guard bounds.width > 0, bounds.height > 0 else { return }
 
-    let horizontalPadding = itemStyle?.paddingHorizontal ?? itemStyle?.padding ?? 8
-    let verticalPadding = itemStyle?.paddingVertical ?? itemStyle?.padding ?? 8
+    let horizontalPadding: CGFloat = {
+      if let style = itemStyle, let value = style.paddingHorizontal {
+        return CGFloat(value)
+      }
+      return 0
+    }()
+
+    let verticalPadding: CGFloat = {
+      if let style = itemStyle, let value = style.paddingVertical {
+        return CGFloat(value)
+      }
+      return 0
+    }()
 
     label.frame = bounds.insetBy(
       dx: horizontalPadding,
@@ -153,19 +162,24 @@ final class ListCellView: UIView {
     let measured: CGFloat
     if scrollAxis == .horizontal {
       let size = label.sizeThatFits(
-        CGSize(width: .greatestFiniteMagnitude, height: bounds.height)
+        CGSize(
+          width: .greatestFiniteMagnitude,
+          height: bounds.height - verticalPadding * 2
+        )
       )
       measured = size.width + horizontalPadding * 2
     } else {
       let size = label.sizeThatFits(
-        CGSize(width: bounds.width - horizontalPadding * 2,
-               height: .greatestFiniteMagnitude)
+        CGSize(
+          width: bounds.width - horizontalPadding * 2,
+          height: .greatestFiniteMagnitude
+        )
       )
       measured = size.height + verticalPadding * 2
     }
 
     guard measured != lastMeasuredSize else { return }
-    guard index == boundIndex else { return } // reuse safety
+    guard index == boundIndex else { return }
 
     lastMeasuredSize = measured
     onSizeMeasured?(measured)
@@ -176,7 +190,6 @@ final class ListCellView: UIView {
   func bind(index: Int) {
     self.index = index
     self.boundIndex = index
-
     label.text = "Row \(index)"
     invalidateMeasurement()
   }
