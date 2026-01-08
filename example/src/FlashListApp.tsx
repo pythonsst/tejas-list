@@ -2,7 +2,7 @@ import { SafeAreaView, StyleSheet, View, Text } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 
 const ITEM_COUNT = 10_000;
-const ESTIMATED_ITEM_HEIGHT = 84;
+// const ESTIMATED_ITEM_HEIGHT = 84;
 
 const data = Array.from({ length: ITEM_COUNT }, (_, i) => i);
 
@@ -19,7 +19,7 @@ export default function FlashListApp() {
       <FlashList
         style={styles.listContainer}
         data={data}
-        estimatedItemSize={ESTIMATED_ITEM_HEIGHT}
+        // estimatedItemSize={ESTIMATED_ITEM_HEIGHT}
         keyExtractor={(item) => String(item)}
         contentContainerStyle={styles.list}
         renderItem={({ item }) => (
