@@ -28,6 +28,9 @@ final class ListCoordinator {
   private let windowPredictor = VisibleWindowPredictor()
   private let stickyHeaderManager = StickyHeaderManager()
   private var itemStyle: ItemStyle?
+  // Static row label prefix (e.g. "Row")
+  private var itemString: String?
+
 
 
   // Performance
@@ -144,6 +147,13 @@ final class ListCoordinator {
     rootView.itemStyle = style   // ← REQUIRED
     needsLayoutBuild = true
   }
+  
+  func setItemString(_ value: String?) {
+    itemString = value
+    rootView.itemString = value
+  }
+
+
 
   func handleScroll(offset: CGFloat, viewport: CGFloat) {
     ThreadHopTracker.assertMainThread("scroll")

@@ -187,12 +187,27 @@ final class ListCellView: UIView {
 
   // MARK: - Binding
 
-  func bind(index: Int) {
+//  func bind(index: Int) {
+//    self.index = index
+//    self.boundIndex = index
+//    label.text = "Row \(index)"
+//    invalidateMeasurement()
+//  }
+  // MARK: - Binding
+
+  func bind(index: Int, textPrefix: String?) {
     self.index = index
     self.boundIndex = index
-    label.text = "Row \(index)"
+
+    if let prefix = textPrefix {
+      label.text = "\(prefix) \(index)"
+    } else {
+      label.text = nil
+    }
+
     invalidateMeasurement()
   }
+
 
   // MARK: - Reuse
 

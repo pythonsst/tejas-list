@@ -24,30 +24,18 @@ type PublicTejasListProps = Omit<
   onVisibleRangeChange?: (start: number, end: number) => void;
 };
 
-/**
- * Strict numeric normalizer.
- * Any non-number → 0
- */
 function toNumber(value: unknown): number {
   return typeof value === 'number' ? value : 0;
 }
 
-/**
- * Strict color normalizer.
- * RN processColor → number | null
- */
 function toColor(value: unknown): number | null {
   const c = processColor(value as any);
   return typeof c === 'number' ? c : null;
 }
 
 /**
- * Convert React Native ViewStyle → Nitro-safe ItemStyle.
- *
- * IMPORTANT:
- * - Only visual + padding props
- * - NO layout-level spacing here
- * - NO ambiguous padding
+ * RN ViewStyle → Nitro-safe ItemStyle
+ * (visual-only, no layout semantics)
  */
 function resolveItemStyle(style?: StyleProp<ViewStyle>) {
   if (!style) return undefined;
@@ -58,40 +46,26 @@ function resolveItemStyle(style?: StyleProp<ViewStyle>) {
   return {
     paddingHorizontal: toNumber(flat.paddingHorizontal),
     paddingVertical: toNumber(flat.paddingVertical),
-
     backgroundColor: toColor(flat.backgroundColor),
-
     borderRadius: toNumber(flat.borderRadius),
-
     borderWidth: toNumber(flat.borderWidth),
     borderColor: toColor(flat.borderColor),
   };
 }
 
-/**
- * TejasList React wrapper.
- *
- * Responsibilities:
- * - Normalize RN styles → Nitro-safe props
- * - Forward layout-level props directly to native
- * - Maintain strict separation of concerns
- */
 export const TejasList = React.forwardRef<
   TejasListMethods,
   PublicTejasListProps
 >(function TejasList(props, forwardedRef) {
   const { style, itemStyle, onVisibleRangeChange, ...nativeProps } = props;
 
-  /**
-   * Resolve ItemStyle once per change
-   */
   const resolvedItemStyle = React.useMemo(
     () => resolveItemStyle(itemStyle),
     [itemStyle]
   );
 
   /**
-   * Wrap visible range callback for Nitro
+   * Visible range callback is event-style → wrapped
    */
   const visibleRangeCallback = React.useMemo(() => {
     if (!onVisibleRangeChange) return undefined;
@@ -117,7 +91,7 @@ export const TejasList = React.forwardRef<
 
   return (
     <TejasListHostView
-      {...nativeProps} // includes rowSpacing / columnSpacing
+      {...nativeProps} // includes itemString
       style={style}
       itemStyle={resolvedItemStyle}
       hybridRef={hybridRef}

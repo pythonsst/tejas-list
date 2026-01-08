@@ -3,18 +3,16 @@ import QuartzCore
 
 /// Root scroll container for the list.
 ///
-/// RESPONSIBILITIES:
+/// Responsibilities:
 /// - Owns UIScrollView + contentView
 /// - Mounts / recycles visible cells
 /// - Manages prefetch pool
 /// - Applies snapshot-based fast-scroll masking
 ///
-/// HARD GUARANTEES:
-/// - visibleCells contains ONLY real cells
-/// - prefetchedCells contains ONLY hidden, non-measuring cells
-/// - snapshot views are never mixed with real cells
-/// - reusePool is the primary allocator
-/// - deterministic mount / recycle
+/// Guarantees:
+/// - Deterministic mount / recycle
+/// - No measurement during prefetch
+/// - Snapshots never mix with real cells
 final class ListRootView: UIView, UIScrollViewDelegate {
 
   // MARK: - Views
@@ -23,11 +21,11 @@ final class ListRootView: UIView, UIScrollViewDelegate {
   private let contentView = UIView()
   private var scrollSignalSource: ScrollSignalSource?
 
-  // MARK: - Phase-2: Snapshot cache
+  // MARK: - Snapshot cache
 
   private let snapshotCache = CellSnapshotCache()
 
-  // MARK: - Callbacks (Coordinator-owned)
+  // MARK: - Coordinator callbacks
 
   var onScroll: ((CGFloat, CGFloat) -> Void)?
   var onLayoutReady: (() -> Void)?
@@ -41,13 +39,17 @@ final class ListRootView: UIView, UIScrollViewDelegate {
 
   private var didLayoutOnce = false
   private var scrollAxis: ScrollAxis = .vertical
+
+  /// Visual-only per-item style
   var itemStyle: ItemStyle?
+
+  /// Static row label prefix (e.g. "Row")
+  var itemString: String?
 
   /// Driven exclusively by coordinator
   var isFastScrolling: Bool = false {
     didSet {
-      // Transition: fast → normal
-      if oldValue == true && isFastScrolling == false {
+      if oldValue && !isFastScrolling {
         clearSnapshots()
         snapshotCache.reset()
       }
@@ -67,7 +69,6 @@ final class ListRootView: UIView, UIScrollViewDelegate {
     scrollSignalSource =
       DisplayLinkScrollSignalSource(scrollView: scrollView)
 
-    // Frame-synchronous scroll signal (NO layout logic here)
     scrollSignalSource?.onFrame = { [weak self] offset, viewport, _ in
       self?.onScroll?(offset, viewport)
     }
@@ -122,7 +123,7 @@ final class ListRootView: UIView, UIScrollViewDelegate {
 
       cell.isHidden = true
       cell.onSizeMeasured = nil
-      cell.bind(index: index)
+      cell.bind(index: index, textPrefix: itemString)
 
       let offset = layout.offset(at: index)
       let size = layout.height(at: index)
@@ -151,7 +152,7 @@ final class ListRootView: UIView, UIScrollViewDelegate {
     snapshotCache.removeAllSnapshots(from: contentView)
   }
 
-  // MARK: - Mount / Recycle (Snapshot-aware)
+  // MARK: - Mount / Recycle
 
   func mountCells(
     start: Int,
@@ -178,7 +179,7 @@ final class ListRootView: UIView, UIScrollViewDelegate {
     for index in start...end {
       if visibleCells[index] != nil { continue }
 
-      // Snapshot takes precedence during fast scroll
+      // Snapshot precedence during fast scroll
       if isFastScrolling,
          let snapshot = snapshotCache.snapshotView(for: index) {
 
@@ -201,10 +202,10 @@ final class ListRootView: UIView, UIScrollViewDelegate {
         cell.isHidden = false
       } else if let reused = reusePool.dequeueIfAvailable() {
         cell = reused
-        cell.bind(index: index)
+        cell.bind(index: index, textPrefix: itemString)
       } else {
         cell = ListCellView()
-        cell.bind(index: index)
+        cell.bind(index: index, textPrefix: itemString)
       }
 
       cell.setScrollAxis(scrollAxis)
@@ -221,7 +222,6 @@ final class ListRootView: UIView, UIScrollViewDelegate {
           ? CGRect(x: offset, y: 0, width: size, height: bounds.height)
           : CGRect(x: 0, y: offset, width: bounds.width, height: size)
 
-      // Ensure real cell is above snapshot if present
       if let snapshot = snapshotCache.snapshotView(for: index) {
         contentView.insertSubview(cell, aboveSubview: snapshot)
       } else {
@@ -234,15 +234,13 @@ final class ListRootView: UIView, UIScrollViewDelegate {
     assertInvariants()
   }
 
-  // MARK: - Sticky Header (Phase-3, coordinator-driven)
+  // MARK: - Sticky Header
 
-  /// Pins a specific header cell at a given Y offset
   func applyStickyHeader(index: Int, y: CGFloat) {
     guard let cell = visibleCells[index] else { return }
     cell.applyStickyOffset(y)
   }
 
-  /// Clears all sticky header transforms
   func clearStickyHeader() {
     for cell in visibleCells.values {
       cell.applyStickyOffset(nil)

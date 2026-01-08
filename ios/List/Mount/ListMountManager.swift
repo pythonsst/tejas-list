@@ -101,7 +101,7 @@ final class ListMountManager {
       if visibleCells[index] != nil { continue }
 
       let cell = reusePool.dequeueIfAvailable() ?? ListCellView()
-      cell.bind(index: index)
+      cell.bind(index: index, textPrefix: nil)
       cell.setScrollAxis(axis)
       cell.onSizeMeasured = { size in
         onSizeMeasured(index, size)

@@ -38,25 +38,33 @@ final class HybridTejasList: HybridTejasListSpec {
     }
   }
 
-  // MARK: - Layout Spacing (NEW)
   // MARK: - Layout Spacing
 
   var rowSpacing: Double? {
     didSet {
-      let value = rowSpacing ?? 0
-      coordinator.setRowSpacing(CGFloat(value))
+      coordinator.setRowSpacing(CGFloat(rowSpacing ?? 0))
       needsReload = true
     }
   }
 
   var columnSpacing: Double? {
     didSet {
-      let value = columnSpacing ?? 0
-      coordinator.setColumnSpacing(CGFloat(value))
+      coordinator.setColumnSpacing(CGFloat(columnSpacing ?? 0))
       needsReload = true
     }
   }
 
+  // MARK: - Item String (NEW, STATIC)
+
+  /// Static row label prefix (e.g. "Row")
+  var itemString: String? {
+    didSet {
+      coordinator.setItemString(itemString)
+      needsReload = true
+    }
+  }
+
+  // MARK: - Callbacks
 
   var onVisibleRangeChange: ((Double, Double) -> Void)? {
     didSet {
