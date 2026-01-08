@@ -10,6 +10,13 @@ final class HybridTejasList: HybridTejasListSpec {
 
   // MARK: - JS Props
 
+  var itemStyle: ItemStyle? {
+    didSet {
+      coordinator.setItemStyle(itemStyle)
+      needsReload = true
+    }
+  }
+
   var scrollDirection: ScrollDirection? {
     didSet {
       coordinator.setScrollDirection(scrollDirection)

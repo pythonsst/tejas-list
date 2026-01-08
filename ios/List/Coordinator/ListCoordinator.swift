@@ -27,6 +27,8 @@ final class ListCoordinator {
   private let directionTracker = ScrollDirectionTracker()
   private let windowPredictor = VisibleWindowPredictor()
   private let stickyHeaderManager = StickyHeaderManager()
+  private var itemStyle: ItemStyle?
+
 
   // Performance
   private let fpsMonitor = FPSMonitor()
@@ -122,6 +124,13 @@ final class ListCoordinator {
   }
 
   // MARK: - Scroll Entry Point
+  
+  
+  func setItemStyle(_ style: ItemStyle?) {
+    self.itemStyle = style
+    rootView.itemStyle = style   // ← REQUIRED
+    needsLayoutBuild = true
+  }
 
   func handleScroll(offset: CGFloat, viewport: CGFloat) {
     ThreadHopTracker.assertMainThread("scroll")

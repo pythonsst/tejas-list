@@ -41,6 +41,7 @@ final class ListRootView: UIView, UIScrollViewDelegate {
 
   private var didLayoutOnce = false
   private var scrollAxis: ScrollAxis = .vertical
+  var itemStyle: ItemStyle?
 
   /// Driven exclusively by coordinator
   var isFastScrolling: Bool = false {
@@ -207,6 +208,7 @@ final class ListRootView: UIView, UIScrollViewDelegate {
       }
 
       cell.setScrollAxis(scrollAxis)
+      cell.applyStyle(itemStyle)
       cell.onSizeMeasured = { [weak self] size in
         self?.onCellHeightChange?(index, size)
       }
