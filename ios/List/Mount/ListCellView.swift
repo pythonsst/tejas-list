@@ -11,6 +11,10 @@ final class ListCellView: UIView {
   private(set) var index: Int = -1
   private var boundIndex: Int = -1
 
+  // MARK: - Style
+
+  private var itemStyle: ItemStyle?
+
   // MARK: - Sticky Header
 
   /// Marks this cell as eligible for sticky behavior
@@ -30,6 +34,19 @@ final class ListCellView: UIView {
       transform = .identity
       layer.zPosition = 0
     }
+  }
+
+  // MARK: - Color Helpers
+
+  private func decodeARGB(_ value: Double) -> UIColor {
+    let argb = UInt32(value)
+
+    let a = CGFloat((argb >> 24) & 0xFF) / 255.0
+    let r = CGFloat((argb >> 16) & 0xFF) / 255.0
+    let g = CGFloat((argb >> 8) & 0xFF) / 255.0
+    let b = CGFloat(argb & 0xFF) / 255.0
+
+    return UIColor(red: r, green: g, blue: b, alpha: a)
   }
 
   // MARK: - Callbacks
@@ -67,6 +84,50 @@ final class ListCellView: UIView {
     invalidateMeasurement()
   }
 
+  // MARK: - Style Application (FINAL)
+
+  func applyStyle(_ style: ItemStyle?) {
+    itemStyle = style
+
+    guard let style else {
+      backgroundColor = nil
+      layer.cornerRadius = 0
+      layer.borderWidth = 0
+      layer.borderColor = nil
+      invalidateMeasurement()
+      return
+    }
+
+    // Background color
+    if let variant = style.backgroundColor {
+      switch variant {
+      case .first:
+        backgroundColor = nil
+      case .second(let value):
+        backgroundColor = decodeARGB(value)
+      }
+    } else {
+      backgroundColor = nil
+    }
+
+    // Border color
+    if let variant = style.borderColor {
+      switch variant {
+      case .first:
+        layer.borderColor = nil
+      case .second(let value):
+        layer.borderColor = decodeARGB(value).cgColor
+      }
+    } else {
+      layer.borderColor = nil
+    }
+
+    layer.cornerRadius = style.borderRadius
+    layer.borderWidth = style.borderWidth
+
+    invalidateMeasurement()
+  }
+
   // MARK: - Layout
 
   override func layoutSubviews() {
@@ -74,7 +135,13 @@ final class ListCellView: UIView {
 
     guard bounds.width > 0, bounds.height > 0 else { return }
 
-    label.frame = bounds
+    let horizontalPadding = itemStyle?.paddingHorizontal ?? itemStyle?.padding ?? 8
+    let verticalPadding = itemStyle?.paddingVertical ?? itemStyle?.padding ?? 8
+
+    label.frame = bounds.insetBy(
+      dx: horizontalPadding,
+      dy: verticalPadding
+    )
 
     // 🔑 Measurement key (width-sensitive for vertical lists)
     let measureKey: CGFloat =
@@ -88,12 +155,13 @@ final class ListCellView: UIView {
       let size = label.sizeThatFits(
         CGSize(width: .greatestFiniteMagnitude, height: bounds.height)
       )
-      measured = size.width + 16
+      measured = size.width + horizontalPadding * 2
     } else {
       let size = label.sizeThatFits(
-        CGSize(width: bounds.width, height: .greatestFiniteMagnitude)
+        CGSize(width: bounds.width - horizontalPadding * 2,
+               height: .greatestFiniteMagnitude)
       )
-      measured = size.height + 16
+      measured = size.height + verticalPadding * 2
     }
 
     guard measured != lastMeasuredSize else { return }
@@ -110,7 +178,6 @@ final class ListCellView: UIView {
     self.boundIndex = index
 
     label.text = "Row \(index)"
-
     invalidateMeasurement()
   }
 
@@ -123,6 +190,7 @@ final class ListCellView: UIView {
     label.text = nil
     onSizeMeasured = nil
     isStickyHeader = false
+    itemStyle = nil
 
     applyStickyOffset(nil)
     invalidateMeasurement()
