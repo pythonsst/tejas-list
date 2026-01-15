@@ -1,6 +1,6 @@
-import TejasListApp from './TejasListApp';
+import FlashListApp from './FlashListApp';
 
 export default function App() {
   // return <TejasListApp />;
-  return <TejasListApp />;
+  return <FlashListApp />;
 }
